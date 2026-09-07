@@ -1208,10 +1208,10 @@ async function fetchStream(query,row){
     let idx;
     while((idx=buffer.indexOf('\n\n'))>=0){
       const evt=buffer.slice(0,idx);buffer=buffer.slice(idx+2);
-      const line=evt.split('\n').find(l=>l.startsWith('data:'));
-      if(!line)continue;
-      let data=line.slice(5);
-      if(data.startsWith(' ')) data=data.slice(1);   // 只剥 "data: " 的那一个空格, 保留 token 自身前后空格
+      const dlines=evt.split('\n').filter(l=>l.startsWith('data:'));
+      if(!dlines.length)continue;
+      // 多行内容被服务端拆成多个 data: 行, 这里用 \n 拼回
+      let data=dlines.map(l=>{let s=l.slice(5); if(s.startsWith(' '))s=s.slice(1); return s;}).join('\n');
       if(data==='[DONE]'){streamEnded=true;break}
       // 兼容: 若上游未来给 JSON ({"content":"..."}), 提取 content 兜底
       if(data.trimStart().startsWith('{')){try{const j=JSON.parse(data.trim());data=j.content||j.answer||j.text||data}catch{}}

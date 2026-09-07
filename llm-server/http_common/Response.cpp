@@ -107,7 +107,18 @@ void Response::beginStream() {
 }
 
 void Response::sseChunk(const std::string& chunk) {
-    std::string payload = "data: " + chunk + "\n\n";
+    // SSE 规范: 内容含换行时必须拆成多个 data: 行, 否则客户端按事件切分会丢行
+    std::string payload;
+    size_t start = 0;
+    while (true) {
+        size_t nl = chunk.find('\n', start);
+        std::string line = (nl == std::string::npos) ? chunk.substr(start)
+                                                      : chunk.substr(start, nl - start);
+        payload += "data: " + line + "\n";
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    payload += "\n";   // 空行结束事件
     sendAll(payload.data(), payload.size());
 }
 

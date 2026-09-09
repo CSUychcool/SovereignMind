@@ -1,55 +1,113 @@
-# llmServer
+<div align="center">
 
-自托管、跑在你本地 GPU 上的 AI 助手，前后端一体、零第三方依赖前端。
+# 🚀 llmServer
 
-**仓库内容**：`llm-server/`（自研 C++ HTTP 服务）+ 它编译所需的基础设施目录 `common/ http/ reactor/ thread/ crypto/`。
+**自托管·本地 GPU·小模型友好的 AI 助手** — 前后端一体，C++17 自研服务器 + 单文件前端，零第三方前端依赖。
 
-## 架构
+云端能力你都有，但它**跑在你自己的机器上**。
+
+</div>
+
+---
+
+## ✨ 核心优势
+
+### 1. 为「小模型」而生的上下文管理
+本地模型窗口小、预算紧，我们把它榨到极致：
+
+- **Token 预算装历史**：按 `窗口 − 输出预留` 逐条裁剪历史，从最新往最旧装，绝不超窗被上游静默截断；
+- **滚动摘要 · until_fit 连压**：溢出时单请求内循环压缩最早一批旧消息生成摘要，**连压到剩余历史装得下为止**，摘要始终贴合最新对话；
+- **历史语义召回（向量优先）**：窗口外的旧消息按提问做**向量检索**召回精简注入，LIKE 关键词留作兜底；
+- **上下文用量实时条**：前端按与服务端同口径的 token 估算实时显示占用，可一键 `/api/convs/clear` 清空上下文（保留对话壳）。
+- 采用分段的记忆策略，让 7B/8B 级别的模型也能维持数万条对话的「记忆」。
+
+### 2. RAG 知识库 + 知识图谱（GRAPH），开关对你开放
+- 文档上传（txt/md）→ 切块 → **本地 embedding 向量化**（Ollama `/api/embed`，与聊天后端解耦）→ 入库；
+- 入库时**固定生成 RAG GRAPH**（LLM 抽取实体/关系，存 `kb_entities/kb_edges` 邻接表）；
+- 提问时语义检索相关片段 + 邻域图谱注入，回答带可溯源引用；
+- **开发者可随时通过请求参数开关切不切图**：`use_rag` / `use_graph`（请求级或全局默认）——图照常生成，用不用由你定。
+
+### 3. 语音全链路 · 断网也有降级策略
+一句话，从「说」到「听」全部本机可跑：
+
+- **ASR（说→字）**：浏览器实时识别优先，失败自动回退**本机 whisper.cpp**（base 模型），断网可用；
+- **TTS（字→听）**：**三级降级** —— `CosyVoice2`（GPU，720p 级自然度）→ `piper`（纯离线轻量）→ 浏览器系统语音；
+- **SSE 流式逐句**推送音频，浏览器 WebAudio 顺序播放，支持**暂停/继续/调速**，回答完成后可自动朗读。
+
+### 4. 接阿里开源 CosyVoice2 · 可定制音色
+- 基于阿里开源 **CosyVoice2-0.5B** 作为 GPU TTS 首选，内置多音色可选，零样本路径可扩展到**音色克隆**；
+- 模型常驻 GPU sidecar（127.0.0.1:9101），逐句合成毫秒级响应，不阻塞主服务。
+
+---
+
+## 🏗 架构
 
 ```
-index.html (单文件前端, 深空主题)
-   └─ http://localhost:9000 → llm-server (C++17 自研 HTTP 服务器)
-                        ├─ /api/chat    -> 转发 Ollama(11434) 或 vLLM(8000), SSE 流式
-                        ├─ /api/auth/*  -> 注册/登录/Token 会话 (MySQL)
-                        ├─ /api/convs*  -> 对话/消息 CRUD (MySQL)
-                        ├─ /api/control/* -> 模型状态/切换
-                        └─ GET /         -> 返回 index.html (配置 web_root)
+index.html (单文件前端 · 深空主题)
+   └─ http://localhost:9000 → llm-server (C++17 自研事件驱动 HTTP)
+              │  ├─ /api/chat      → 上游 Ollama(11434) / vLLM(8000) SSE 流式
+              │  ├─ /api/auth/*    → 注册/登录/Token 会话 (MySQL)
+              │  ├─ /api/convs*    → 对话/消息 CRUD + 清上下文 (MySQL)
+              │  ├─ /api/kb/*      → RAG 知识库: 上传/列表/删除 (faiss/向量 + MySQL)
+              │  ├─ /api/control/* → 模型状态/一键切换
+              │  ├─ /api/tts       → 本地 TTS: SSE 逐句音频 (CosyVoice→piper→系统)
+              │  ├─ /api/asr       → 本地 ASR: wav→文本 (whisper.cpp)
+              │  └─ GET /          → index.html (web_root)
+   upstream 模型:  Ollama:11434  ·  vLLM:8000   (可切换)
+   语音引擎:       Ollama /api/embed (nomic-embed-text)
+                   CosyVoice2 sidecar:9101 · piper · whisper.cpp
 ```
 
-## 特性
+平台分层（依赖单向）：`net/`(双线程池+fd移交) → `route/`(集中鉴权) → `handler/` → `service/`(领域) → `db/`(MySQL)。
+
+---
+
+## 🔌 特性一览
 
 - SSE 流式回复 · Markdown 渲染 · 代码一键复制
-- 服务器端账号系统：注册 / 登录 / Token 会话 / 退出，密码加盐 SHA-256 落库
-- 对话与消息全部存 MySQL → 刷新不丢、跨设备同步
-- 多会话列表 · 首条消息自动命名 · 一键导出
-- 同源 API 自适应 → 本地 `file://` 或 frp/Cloudflare Tunnel 公网 HTTPS 都免配置
-- 模型一键切换（Ollama ↔ vLLM，切换自动重启服务，会话不丢）
+- 服务器端账号：注册/登录/Token 会话，密码加盐哈希落库
+- 对话与消息全存 MySQL，刷新不丢、多端同步；多会话列表、自动命名、一键导出
+- **上下文管理**：预算装历史 / 滚动摘要 until_fit / 历史向量召回 / 用量条 / 一键清空
+- **RAG**：知识库上传、语义检索注入、**RAG GRAPH 可选使用**（`use_graph`）
+- **语音**：录音转文字（浏览器→whisper 降级）、逐句朗读（CosyVoice→piper→系统降级）、暂停/调速/自动读
+- 模型一键切换（Ollama ↔ vLLM，自动重启服务不丢会话）
+- 同源 API 自适应：本地 `file://` 打开或 frp/隧道公网 HTTPS 均免配置
 
-## 技术栈
+---
 
-C++17 · 自研事件驱动 HTTP（Epoll + 线程池）· jsoncpp · MySQL 8 · OpenSSL(SHA-256) · 原生 JavaScript
+## 🧰 技术栈
 
-## 构建
+C++17 · 自研事件驱动 HTTP（Epoll + 双线程池）· jsoncpp · MySQL 8 · OpenSSL · 原生 JavaScript
+语音：whisper.cpp · piper · CosyVoice2(可选 GPU) · 向量：进程内向量索引（预留 faiss 后端）
 
-依赖：g++ / cmake / `libmysqlclient-dev` / `libjsoncpp-dev` / OpenSSL。
+---
+
+## 🛠 构建
+
+依赖：`g++ / cmake / libmysqlclient-dev / libjsoncpp-dev / libssl-dev`
 
 ```bash
 cmake -S llm-server -B build
 cmake --build build -j4
-# 产物在 build/llm-server
 ```
 
-> 本仓库 `llm-server/CMakeLists.txt` 的 `EXECUTABLE_OUTPUT_PATH` 保留了本机路径 `/home/yc_21/server_ddz/bin`；克隆回来后按需修改该行即可。
+> `llm-server/CMakeLists.txt` 的 `EXECUTABLE_OUTPUT_PATH` 保留了本机路径 `/home/yc_21/server_ddz/bin`，克隆后按需修改。
 
-## 运行
+## ▶️ 运行
 
-1. 准备 MySQL 库与账号，把 `llm-server/config.ollama.example.json` 复制为 `config.ollama.json` 并填入 `db` 段（host/port/user/password/database），首次启动会自动建表
-2. 启动上游：Ollama（`ollama serve`，默认 11434）或 vLLM
-3. 启动服务：`llm-server --config llm-server/config.ollama.json`，默认监听 9000
-4. 浏览器打开 `index.html`，注册账号后即可使用；聊天记录与账号都在服务器 MySQL 中
+1. 准备 MySQL 库与账号，复制 `config.ollama.example.json` 为 `config.ollama.json` 填 `db` 段；首次启动自动建表；
+2. 启动上游 `ollama serve`（或 vLLM）；拉取 embedding 模型 `ollama pull nomic-embed-text`；
+3. 启动服务：`bin/llm-server --config llm-server/config.ollama.json`（默认 9000）；
+4. 安装语音引擎（可选，但推荐）：
+   ```bash
+   bash voice/setup.sh                 # piper 预编译 + 中文音色 + whisper.cpp 构建
+   bash voice/setup_cosyvoice.sh       # conda env + CosyVoice 依赖 + modelscope 拉模型
+   python voice/cosyvoice_server.py --port 9101 --model voice/cosyvoice-model/CosyVoice2-0.5B
+   ```
+5. 打开 `index.html` 注册使用。
 
-> 注意：`main.cpp` 与 `ControlHandler.cpp` 中保留了本机绝对路径（工作目录、重启脚本 `start_model.sh`、`web_root` 指向 `/mnt/c/Users/yc_21/llm-chat`），按你的环境修改。
+---
 
-## 安全提醒
+## 🛡 安全提醒
 
-将服务暴露到公网前（frp/隧道）至少做到：所有 `/api/*` 均已要求登录（Token），但请确认前端页面不包含涉密内容，并按需加一层 Basic Auth / 放行 IP。
+暴露公网前（frp/隧道）确保：所有 `/api/*` 均要求登录（Token）；建议再加一层 Basic Auth / IP 白名单。本项目为私有自托管定位，未内置联邦登录。

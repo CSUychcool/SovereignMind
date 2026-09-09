@@ -2,8 +2,25 @@
 
 - 关联文档：`docs/requirements.md` v0.6（需求基线 & 选型结论 §22 & 总体计划 §23）
 - 日期：2026-09-09
-- 分支：main
+- 分支：main（featuer/p0-p1 已于 2026-09-10 合入）
 - 说明：本文档给出 **P0 与 P1 的任务级计划**（每个任务=一次可开工实现的单位）。进一步到"某个具体任务的实施步骤"仍按约定在真正运行时再拆。
+- 状态（2026-09-10）：**P0/P1 已全部实现并入 main**；V1 语音(ASR/TTS) 后端已并入，CosyVoice2 音色升级安装中。
+
+## 0. 实现状态快照
+
+| 计划项 | 状态 | 提交/说明 |
+|---|---|---|
+| P0 节流B（until_fit 连压） | ✅ 已实现 | e6e29a0 |
+| P1-A RAG+GRAPH 后端（/api/kb/*、检索注入、use_graph 开关、GRAPH=LLM 抽取→kb_entities/kb_edges） | ✅ 已实现 | 7d65c31 |
+| P1-C 历史会话向量召回（路径B：向量优先 + LIKE 兜底，vec_state 增量回填） | ✅ 已实现 | 7d65c31 |
+| P1-B 语音前端（录音/朗读/暂停调速/设置开关） | ✅ 已实现 | 920726b、794e244 |
+| 向量库选型 D2（faiss） | ⏳ **当前=进程内暴力余弦**（VectorStore 接口留好，faiss 待 sudo 装 libfaiss-dev 后无缝替换） | 7d65c31 |
+| V1 语音后端（/api/tts SSE + /api/asr whisper.cpp） | ✅ 已并入 | 1529e60 |
+| 语音引擎安装（piper 预编译 + whisper.cpp 构建 + base 模型） | ✅ 已就绪 | voice/setup.sh |
+| V1 音色升级 CosyVoice2-0.5B（GPU sidecar, 阿里开源, 可定制音色） | 🔄 安装中 | voice/setup_cosyvoice.sh（torch+pynini 已过，剩余依赖与模型下载） |
+| ASR 接口（V1 whisper）实际链路 | ✅ 已验证 | 呼出 /api/asr 冒烟通过 |
+
+> 语音 V1 链路：输入=浏览器识别优先→失败回退本机 whisper（/api/asr）；输出=/api/tts SSE 逐句音频（TTS 后端 cosyvoice 优先→piper 兜底），前端 WebAudio 队列播放，支持暂停/调速。
 
 ## 0. 范围界定
 

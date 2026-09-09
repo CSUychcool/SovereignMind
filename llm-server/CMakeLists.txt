@@ -53,6 +53,7 @@ set(LLM_SRCS
     AuthHandler.cpp
     ConvHandler.cpp
     KnowledgeHandler.cpp
+    VoiceHandler.cpp
     route/Router.cpp
     config/AppConfig.cpp
     service/AuthService.cpp
@@ -63,6 +64,7 @@ set(LLM_SRCS
     service/EmbedClient.cpp
     service/VectorStore.cpp
     service/KnowledgeService.cpp
+    service/VoiceService.cpp
     http_common/Response.cpp
 )
 

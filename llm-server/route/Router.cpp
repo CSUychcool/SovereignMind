@@ -4,6 +4,7 @@
 #include "ConvHandler.h"
 #include "ChatHandler.h"
 #include "KnowledgeHandler.h"
+#include "VoiceHandler.h"
 #include "service/AuthService.h"
 
 void Router::dispatch(HttpContext& ctx) {
@@ -17,11 +18,15 @@ void Router::dispatch(HttpContext& ctx) {
     if (ctx.url.rfind("/api/kb", 0) == 0 ||
         ctx.url.rfind("/api/convs", 0) == 0 ||
         ctx.url.rfind("/api/control/", 0) == 0 ||
-        ctx.url.rfind("/api/chat", 0) == 0) {
+        ctx.url.rfind("/api/chat", 0) == 0 ||
+        ctx.url.rfind("/api/tts", 0) == 0 ||
+        ctx.url.rfind("/api/asr", 0) == 0) {
         if (!requireAuth(ctx)) return;
         if (ctx.url.rfind("/api/kb", 0) == 0)            KnowledgeHandler::handle(ctx);
         else if (ctx.url.rfind("/api/convs", 0) == 0)    ConvHandler::handle(ctx);
         else if (ctx.url.rfind("/api/control/", 0) == 0) ControlHandler::handle(ctx);
+        else if (ctx.url.rfind("/api/tts", 0) == 0 ||
+                 ctx.url.rfind("/api/asr", 0) == 0)      VoiceHandler::handle(ctx);
         else                                             ChatHandler::handle(ctx);
         return;
     }

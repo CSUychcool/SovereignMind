@@ -66,6 +66,17 @@ public:
     // 历史会话召回
     int msgRecallTopK = 6;            // 历史会话向量召回条数
     std::string recallMode = "vector";// "vector"(向量优先, LIKE 兜底) | "like"(仅旧 LIKE 路径)
+
+    // ---- V1 语音引擎 (CosyVoice2 sidecar 优先 + piper 兜底; whisper.cpp ASR) ----
+    std::string ttsBackend = "cosyvoice";   // "cosyvoice"(常驻GPU sidecar) | "piper"(本地onnx)
+    std::string cosyHost = "127.0.0.1";
+    int cosyPort = 9101;                    // voice/cosyvoice_server.py
+    std::string piperPath = "/home/yc_21/server_ddz/voice/piper/piper/piper";
+    std::string piperVoice = "/home/yc_21/server_ddz/voice/piper-voices/zh_CN-huayan-medium.onnx";
+    std::string piperVoiceCfg = "/home/yc_21/server_ddz/voice/piper-voices/zh_CN-huayan-medium.onnx.json";
+    std::string whisperPath = "/home/yc_21/server_ddz/voice/whisper.cpp/build/bin/whisper-cli";
+    std::string whisperModel = "/home/yc_21/server_ddz/voice/whisper-models/ggml-base.bin";
+    double ttsLengthScale = 1.0;      // piper 基准语速 (>1 慢, <1 快); 浏览器端另有 playbackRate 调速
     // 可行历史 token 预算 = 窗口 - 输出预留 (若被前端/系统提示覆盖则动态减少)
     int usableHistoryTokens() const { return contextWindow - reserveOutputTokens; }
 

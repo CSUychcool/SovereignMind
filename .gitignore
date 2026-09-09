@@ -6,6 +6,10 @@
 !/.gitignore
 !/README.md
 !/docs/
+!/voice/
+/voice/*
+!/voice/setup.sh
+!/voice/cosyvoice_server.py
 
 !/llm-server/
 !/web/

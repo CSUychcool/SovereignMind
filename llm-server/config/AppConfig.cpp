@@ -66,6 +66,16 @@ bool AppConfig::load(const char* configFile) {
     c.msgRecallTopK = root.get("msg_recall_top_k", c.msgRecallTopK).asInt();
     c.recallMode = root.get("recall_mode", c.recallMode).asString();
 
+    c.piperPath = root.get("piper_path", c.piperPath).asString();
+    c.piperVoice = root.get("piper_voice", c.piperVoice).asString();
+    c.piperVoiceCfg = root.get("piper_voice_cfg", c.piperVoiceCfg).asString();
+    c.whisperPath = root.get("whisper_path", c.whisperPath).asString();
+    c.whisperModel = root.get("whisper_model", c.whisperModel).asString();
+    c.ttsLengthScale = root.get("tts_length_scale", c.ttsLengthScale).asDouble();
+    c.ttsBackend = root.get("tts_backend", c.ttsBackend).asString();
+    c.cosyHost = root.get("cosy_host", c.cosyHost).asString();
+    c.cosyPort = root.get("cosy_port", c.cosyPort).asInt();
+
     // db 段 (可选; 缺失则 hasDb=false, 鉴权/会话接口不可用)
     const Json::Value& db = root["db"];
     if (db.isObject()) {

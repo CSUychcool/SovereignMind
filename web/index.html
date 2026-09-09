@@ -424,7 +424,7 @@ body > canvas#particleCanvas {
 .capsule textarea {
   width:100%; background:transparent; border:none; outline:none; resize:none;
   color:var(--text-primary); font-size:14px;
-  padding:16px 64px 16px 18px; min-height:52px; max-height:200px; line-height:1.5;
+  padding:16px 64px 16px 56px; min-height:52px; max-height:200px; line-height:1.5;
   display:block;
 }
 .capsule textarea::placeholder { color:var(--text-tertiary); }
@@ -570,6 +570,35 @@ body > canvas#particleCanvas {
 .toast-item.err { border-left:3px solid var(--danger); }
 @keyframes toast-in { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
 
+/* ================================================================
+   P1-B 语音 / KB 知识库 / 开关
+=============================================================== */
+.mic-btn {
+  position:absolute; left:14px; bottom:12px;
+  width:38px; height:38px; border-radius:var(--r-md);
+  display:grid; place-items:center; font-size:17px; color:var(--text-secondary);
+  transition:all var(--t-fast); z-index:2;
+}
+.mic-btn:hover { color:var(--text-primary); transform:scale(1.08); }
+.mic-btn.rec { color:#fff; background:var(--danger); animation:mic-pulse 1.4s infinite; }
+@keyframes mic-pulse { 0%{box-shadow:0 0 0 0 rgba(239,68,68,.5);} 70%{box-shadow:0 0 0 12px rgba(239,68,68,0);} 100%{box-shadow:0 0 0 0 rgba(239,68,68,0);} }
+.tool-btn.speaking { color:var(--green); }
+.switch-row { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-sm); margin-bottom:var(--sp-md); }
+.switch-row label { font-size:12.5px; color:var(--text-secondary); }
+.switch { position:relative; width:40px; height:22px; flex-shrink:0; }
+.switch input { opacity:0; width:0; height:0; }
+.switch .slider { position:absolute; inset:0; background:var(--bg-level-4); border-radius:22px; transition:var(--t-fast); cursor:pointer; }
+.switch .slider:before { content:''; position:absolute; width:16px; height:16px; left:3px; top:3px; background:var(--text-secondary); border-radius:50%; transition:var(--t-fast); }
+.switch input:checked + .slider { background:hsla(var(--accent-hue),82%,64%,.35); }
+.switch input:checked + .slider:before { transform:translateX(18px); background:var(--accent); }
+.kb-upload-box { border:1px dashed var(--border-mid); border-radius:var(--r-sm); padding:10px; }
+.kb-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--r-sm); background:var(--bg-level-3); margin-bottom:6px; font-size:12.5px; }
+.kb-item .kb-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kb-item .kb-meta { color:var(--text-tertiary); font-size:11px; flex-shrink:0; }
+.kb-del { color:var(--text-tertiary); font-size:13px; padding:2px 6px; border-radius:4px; }
+.kb-del:hover { color:var(--danger); background:rgba(239,68,68,.1); }
+.kb-empty { color:var(--text-tertiary); font-size:12px; text-align:center; padding:12px 0; }
+
 /* Animations */
 @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
 @keyframes dot-up { 0%,80%,100%{transform:scale(.5);opacity:.35;} 40%{transform:scale(1);opacity:1;} }
@@ -711,6 +740,7 @@ body > canvas#particleCanvas {
           <button class="ctx-clear" id="ctxClearBtn" title="清空上下文(保留对话)">🗑 清空</button>
         </div>
         <div class="capsule">
+          <button class="mic-btn" id="micBtn" title="语音输入">🎤</button>
           <textarea id="questionInput" rows="1" placeholder="发送消息…  Shift+Enter 换行" autofocus></textarea>
           <button class="send-btn" id="sendBtn" title="发送">▶</button>
         </div>
@@ -741,6 +771,18 @@ body > canvas#particleCanvas {
     <div class="section-title" style="margin-top:var(--sp-xl)">界面</div>
     <div class="form-group"><label class="form-label">字体大小</label><select class="form-field" id="settFontSz"><option value="13">小</option><option value="14" selected>标准</option><option value="16">大</option></select></div>
     <div class="form-group"><label class="form-label">打字速度 (字符/秒)</label><input class="form-field" id="settSpeed" type="number" value="30" min="5" max="100"></div>
+    <div class="section-title" style="margin-top:var(--sp-xl)">RAG 知识库</div>
+    <div class="switch-row"><label>提问时使用知识库检索</label><label class="switch"><input type="checkbox" id="settUseRag"><span class="slider"></span></label></div>
+    <div class="switch-row"><label>使用时附知识图谱 (GRAPH)</label><label class="switch"><input type="checkbox" id="settUseGraph"><span class="slider"></span></label></div>
+    <div class="kb-upload-box">
+      <div class="form-group"><label class="form-label">文件名 (txt/md)</label><input class="form-field" id="kbFilename" value="notes.md" placeholder="notes.md"></div>
+      <div class="form-group"><label class="form-label">文档内容</label><textarea class="form-field form-textarea" id="kbContent" rows="4" placeholder="粘贴文档内容…"></textarea></div>
+      <button class="btn btn-outline" id="kbUploadBtn" style="width:100%;font-size:12px">📥 上传到知识库</button>
+    </div>
+    <div id="kbList" style="margin-top:var(--sp-md)"></div>
+    <div class="section-title" style="margin-top:var(--sp-xl)">语音</div>
+    <div class="switch-row"><label>识别/合成语言</label><select class="form-field" id="settVoiceLang" style="width:140px"><option value="zh-CN">中文</option><option value="en-US">English</option></select></div>
+    <div class="switch-row"><label>回答完成后自动朗读</label><label class="switch"><input type="checkbox" id="settReadAloud"><span class="slider"></span></label></div>
     <div class="section-title" style="margin-top:var(--sp-xl)">数据管理</div>
     <div style="display:flex;gap:var(--sp-sm);flex-wrap:wrap;">
       <button class="btn btn-outline" id="doExportData" style="font-size:12px">&#8645; 导入/导出配置</button>
@@ -771,7 +813,7 @@ function defApiUrl(){
   }catch{}
   return 'http://localhost:9000/api/chat';
 }
-const DEF={apiUrl:defApiUrl(),method:'POST',stream:true,systemPrompt:'你是一个有帮助的AI助手。请用简洁清晰的中文回答问题。如果不确定，请坦诚说明。',fontSize:14,speed:30};
+const DEF={apiUrl:defApiUrl(),method:'POST',stream:true,systemPrompt:'你是一个有帮助的AI助手。请用简洁清晰的中文回答问题。如果不确定，请坦诚说明。',fontSize:14,speed:30,useRag:true,useGraph:false,readAloud:false,voiceLang:'zh-CN'};
 // 可用模型（与后端 /api/control/switch 协议对应）
 const MODELS=[
   {backend:'ollama', model:'qwen2.5:7b-instruct-q4_K_M', label:'Qwen2.5 7B (Ollama)'},
@@ -1060,7 +1102,7 @@ function addMsgDOM(role,text,streaming=false){
       <div class="msg-bubble ${streaming?'md-text':''}">${streaming?'':renderMD(text)}</div>
       <div class="msg-tools">
         <button class="tool-btn" title="复制" onclick="copyMsg(this)">📋</button>
-        ${role==='ai'?'<button class="tool-btn" title="重试" onclick="retryMsg(this)">🔄</button>':''}
+        ${role==='ai'?'<button class="tool-btn" title="重试" onclick="retryMsg(this)">🔄</button><button class="tool-btn" title="朗读" onclick="speakRow(this)">🔊</button>':''}
       </div>
     </div>`;
   w.appendChild(r); scrollBot(); return r;
@@ -1077,7 +1119,7 @@ function retryMsg(btn){
 function appendStream(){
   const w=$('msgsWrapper');
   const r=document.createElement('div'); r.className='msg-row ai';
-  r.innerHTML=`<div class="msg-avatar">✦</div><div class="msg-content"><div class="msg-bubble md-text"><span class="cursor-blink"></span></div><div class="msg-tools"><button class="tool-btn" title="复制" onclick="copyMsg(this)">📋</button></div></div>`;
+  r.innerHTML=`<div class="msg-avatar">✦</div><div class="msg-content"><div class="msg-bubble md-text"><span class="cursor-blink"></span></div><div class="msg-tools"><button class="tool-btn" title="复制" onclick="copyMsg(this)">📋</button><button class="tool-btn" title="朗读" onclick="speakRow(this)">🔊</button></div></div>`;
   w.appendChild(r); scrollBot(); return r;
 }
 
@@ -1187,8 +1229,8 @@ async function sendDirect(query){
   const aiRow=appendStream();
   try{
     ac=new AbortController();
-    if(cfg.stream){ const full=await fetchStream(query,aiRow); curMsgs.push({role:'ai',content:full||''}); }
-    else{const r=await fetchPlain(query);updStream(aiRow.querySelector('.msg-bubble'),'');finishStream(aiRow,r);curMsgs.push({role:'ai',content:r});}
+    if(cfg.stream){ const full=await fetchStream(query,aiRow); curMsgs.push({role:'ai',content:full||''}); if(cfg.readAloud&&full) speakText(aiRow.querySelector('.msg-bubble').textContent,null); }
+    else{const r=await fetchPlain(query);updStream(aiRow.querySelector('.msg-bubble'),'');finishStream(aiRow,r);curMsgs.push({role:'ai',content:r});if(cfg.readAloud&&r)speakText(aiRow.querySelector('.msg-bubble').textContent,null);}
   }catch(err){
     if(err.name==='AbortError'){aiRow.remove();return}
     updStream(aiRow.querySelector('.msg-bubble'),'⚠️ 请求失败：'+err.message+'\n请稍后重试。');
@@ -1196,7 +1238,7 @@ async function sendDirect(query){
 }
 
 async function fetchStream(query,row){
-  const payload={conv_id:String(curId||''),prompt:query,system_prompt:cfg.systemPrompt};
+  const payload={conv_id:String(curId||''),prompt:query,system_prompt:cfg.systemPrompt,use_rag:cfg.useRag,use_graph:cfg.useGraph};
   const resp=await fetch(cfg.apiUrl,withAuth({method:cfg.method,body:cfg.method==='GET'?undefined:JSON.stringify(payload),signal:ac?.signal}));
   if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
   const reader=resp.body.getReader();const dec=new TextDecoder();let full='',buffer='',streamEnded=false;
@@ -1224,7 +1266,7 @@ async function fetchStream(query,row){
 }
 
 async function fetchPlain(query){
-  const payload={conv_id:String(curId||''),prompt:query,system_prompt:cfg.systemPrompt};
+  const payload={conv_id:String(curId||''),prompt:query,system_prompt:cfg.systemPrompt,use_rag:cfg.useRag,use_graph:cfg.useGraph};
   const resp=await fetch(cfg.apiUrl,withAuth({method:cfg.method,body:cfg.method==='GET'?undefined:JSON.stringify(payload),signal:ac?.signal}));
   if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
   const data=await resp.json();
@@ -1308,6 +1350,89 @@ $('modelBadge').addEventListener('click',openSet);
 window.addEventListener('load',()=>{ if(user) refreshStatus(); });
 
 /* ================================================================
+   P1-B 语音输入 + 回答朗读 (v0 浏览器 API)
+   - 识别: webkitSpeechRecognition 实时转写填入输入框
+   - 朗读: speechSynthesis (OS 离线语音)
+   - v1 本地 whisper/piper 将会走 POST /api/asr 契约, 此处预留 mode 切换点
+=============================================================== */
+function voiceSupported(){ return !!(window.SpeechRecognition||window.webkitSpeechRecognition) }
+const micBtn=$('micBtn');
+let recog=null;
+let recStarted=false;
+micBtn.addEventListener('click',()=>{
+  if(recStarted){ stopVoice(); return; }
+  if(!voiceSupported()){ toast('当前浏览器不支持语音识别 (v1 将提供本地 whisper 后端)','err'); return; }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recog=new SR(); recog.lang=cfg.voiceLang||'zh-CN'; recog.interimResults=true; recog.continuous=true;
+  let finalText='';
+  recog.onresult=e=>{
+    let interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) finalText+=t; else interim+=t;
+    }
+    qi.value=finalText+interim;
+    qi.dispatchEvent(new Event('input'));
+  };
+  recog.onerror=e=>{ toast('语音识别错误: '+(e.error||'unknown'),'err'); stopVoice(); };
+  recog.onend=()=>{
+    micBtn.classList.remove('rec'); recStarted=false;
+    if(finalText.trim()){ qi.value=finalText.trim(); toast('已识别, 可编辑后发送'); qi.focus(); }
+  };
+  recog.start();
+  recStarted=true; micBtn.classList.add('rec'); micBtn.title='结束语音';
+  toast('🎤 请开始说话…');
+});
+function stopVoice(){ if(recog){ try{recog.stop()}catch{} } recog=null; micBtn.classList.remove('rec'); recStarted=false; }
+
+let ttsVoices=[];
+if('speechSynthesis' in window) speechSynthesis.onvoiceschanged=()=>{ ttsVoices=speechSynthesis.getVoices(); };
+function speakRow(btn){ const txt=btn.closest('.msg-content').querySelector('.msg-bubble').textContent; speakText(txt,btn); }
+function speakText(text,btn){
+  if(!('speechSynthesis' in window)){ toast('浏览器不支持朗读','err'); return; }
+  if(btn&&btn.classList.contains('speaking')){ speechSynthesis.cancel(); btn.classList.remove('speaking'); return; }
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang=cfg.voiceLang||'zh-CN';
+  const v=ttsVoices.length?ttsVoices.find(x=>x.lang&&x.lang.toLowerCase().startsWith(u.lang.toLowerCase())):null;
+  if(v) u.voice=v;
+  u.onend=u.onerror=()=>{ if(btn) btn.classList.remove('speaking'); };
+  speechSynthesis.speak(u);
+  if(btn) btn.classList.add('speaking');
+}
+
+/* ================================================================
+   P1 知识库 (RAG) — /api/kb/*
+=============================================================== */
+async function loadKb(){
+  const el=$('kbList'); if(!el) return;
+  el.innerHTML='<div class="kb-empty">加载中…</div>';
+  try{
+    const r=await api('/api/kb/list'); const j=await r.json();
+    if(j.code!==0){ el.innerHTML='<div class="kb-empty">加载失败</div>'; return; }
+    const docs=j.docs||[];
+    if(!docs.length){ el.innerHTML='<div class="kb-empty">还没有知识文档, 上传一个 txt/md 试试</div>'; return; }
+    el.innerHTML=docs.map(d=>`<div class="kb-item"><span>📄</span><span class="kb-name" title="${escT(d.filename)}">${escT(d.title)}</span><span class="kb-meta">${d.chunk_count}块·${d.status}</span><button class="kb-del" onclick="kbDelete('${d.id}')">🗑</button></div>`).join('');
+  }catch{ el.innerHTML='<div class="kb-empty">知识库加载失败</div>'; }
+}
+async function kbUpload(){
+  const filename=$('kbFilename').value.trim()||'notes.md';
+  const content=$('kbContent').value;
+  if(!content.trim()){ toast('文档内容为空','err'); return; }
+  const r=await api('/api/kb/upload',{method:'POST',body:JSON.stringify({title:filename,filename,content})}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({code:1})):{code:1};
+  if(j.code===0){ toast('已上传到知识库'); $('kbContent').value=''; loadKb(); }
+  else toast(j.msg||'上传失败','err');
+}
+async function kbDelete(id){
+  if(!confirm('删除该知识文档？'))return;
+  const r=await api('/api/kb/delete',{method:'POST',body:JSON.stringify({id:String(id)})}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({code:1})):{code:1};
+  if(j.code===0){ toast('已删除'); loadKb(); } else toast(j.msg||'删除失败','err');
+}
+$('kbUploadBtn').addEventListener('click',kbUpload);
+
+/* ================================================================
    SIDEBAR / SETTINGS
 =============================================================== */
 function openSB(){$('sidebar').classList.add('open');$('sidebarBack').classList.add('open')}
@@ -1321,6 +1446,9 @@ function openSet(){
   $('settStream').value=String(cfg.stream); $('settSystemPrompt').value=cfg.systemPrompt;
   $('settFontSz').value=String(cfg.fontSize); $('settSpeed').value=String(cfg.speed);
   fillModelSelect($('badgeModel').textContent.replace(/^[^ ]+\s+/,'').trim()); // 选中当前模型
+  $('settUseRag').checked=cfg.useRag; $('settUseGraph').checked=cfg.useGraph;
+  $('settReadAloud').checked=cfg.readAloud; $('settVoiceLang').value=cfg.voiceLang||'zh-CN';
+  loadKb();
   $('settingsPanel').classList.add('open'); $('setBack').classList.add('show');
 }
 function closeSet(){$('settingsPanel').classList.remove('open');$('setBack').classList.remove('show')}
@@ -1329,7 +1457,7 @@ $('closeSetBtn').addEventListener('click',closeSet);
 $('setBack').addEventListener('click',closeSet);
 
 $('doSaveSet').addEventListener('click',()=>{
-  cfg={apiUrl:$('settApiUrl').value,method:$('settMethod').value,stream:$('settStream').value==='true',systemPrompt:$('settSystemPrompt').value,fontSize:parseInt($('settFontSz').value),speed:parseInt($('settSpeed').value)||30};
+  cfg={apiUrl:$('settApiUrl').value,method:$('settMethod').value,stream:$('settStream').value==='true',systemPrompt:$('settSystemPrompt').value,fontSize:parseInt($('settFontSz').value),speed:parseInt($('settSpeed').value)||30,useRag:$('settUseRag').checked,useGraph:$('settUseGraph').checked,readAloud:$('settReadAloud').checked,voiceLang:$('settVoiceLang').value};
   saveCfg(cfg); applyFont(cfg.fontSize);closeSet();toast('设置已保存');
 });
 $('doResetSet').addEventListener('click',()=>{cfg={...DEF};localStorage.removeItem(CFG);applyFont(cfg.fontSize);openSet();toast('已恢复默认')});

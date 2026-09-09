@@ -51,6 +51,8 @@ bool AppConfig::load(const char* configFile) {
     c.reserveOutputTokens = root.get("reserve_output_tokens", c.reserveOutputTokens).asInt();
     c.summaryMinNewMessages = root.get("summary_min_new_messages", c.summaryMinNewMessages).asInt();
     c.historyFetchLimit = root.get("history_fetch_limit", c.historyFetchLimit).asInt();
+    c.compactionMode = root.get("compaction_mode", c.compactionMode).asString();
+    c.maxCompressRounds = root.get("max_compress_rounds", c.maxCompressRounds).asInt();
 
     // db 段 (可选; 缺失则 hasDb=false, 鉴权/会话接口不可用)
     const Json::Value& db = root["db"];

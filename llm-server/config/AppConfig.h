@@ -44,8 +44,13 @@ public:
     // ---- 上下文管理 ----
     int contextWindow = 32768;        // 模型窗口 (Ollama 需 OLLAMA_CONTEXT_LENGTH 同步)
     int reserveOutputTokens = 6000;   // 预留给模型输出
-    int summaryMinNewMessages = 20;   // P1: 距上次摘要新增多少条消息才触发重新压缩
+    int summaryMinNewMessages = 20;   // P1: 距上次摘要新增多少条消息才触发重新压缩 (throttled 模式)
     int historyFetchLimit = 500;      // 单次从 DB 拉取的历史上限件数(再按预算裁剪)
+    // 滚动压缩模式(P1 方案B落地):
+    //   "until_fit"(默认): 溢出时单请求内循环连压, 直到未压缩活跃段可装进预算(hasOlder=false)或达 maxCompressRounds
+    //   "throttled"      : 旧方案, 新增>=summaryMinNewMessages 才触发, 每请求最多一轮
+    std::string compactionMode = "until_fit";
+    int maxCompressRounds = 5;        // until_fit 单请求最多压缩轮数(防死循环/防小预算卡死)
     // 可行历史 token 预算 = 窗口 - 输出预留 (若被前端/系统提示覆盖则动态减少)
     int usableHistoryTokens() const { return contextWindow - reserveOutputTokens; }
 

@@ -13,5 +13,7 @@
         "database": "llm_chat"
     },
     "context_window": 32768,
-    "reserve_output_tokens": 6000
+    "reserve_output_tokens": 6000,
+    "compaction_mode": "until_fit",
+    "max_compress_rounds": 5
 }

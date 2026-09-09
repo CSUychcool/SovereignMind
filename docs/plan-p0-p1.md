@@ -18,6 +18,12 @@
 1. faiss 在 WSL 的构建/集成方式（apt `libfaiss-dev` vs 源码编译）确认，出最小 demo（建 Index、落盘、检索）。
 2. Ollama `/api/embed` 用 nomic-embed-text 验证：维度、latency、中文效果、与 faiss 内积检索的端到端联通。
 
+### 前置 spike 结论（2026-09-09 已跑，→ P1-A 依赖项）
+
+- **faiss**：Ubuntu 24.04 `apt-cache search faiss` 无结果 → 需 `apt-get update` 后 `apt-get install -y libfaiss-dev`（可能需 sudo），或源码编译。**P1-A 开工前置，待 M2 敲定装法**。
+- **Ollama /api/embed**：接口可达；当前缺 `nomic-embed-text` 模型，需 `ollama pull nomic-embed-text`（约 270MB）后再验证维度/中文效果。
+- **模型工具能力（D5）**：Ollama 现有 `qwen3:8b`（tools+thinking）与 `qwen2.5:7b-instruct-q4_K_M`（tools）→ M3"原生优先"策略可用面宽，文本指令式兜底仍保留。
+
 ---
 
 ## 1. P0：需求一 压缩节流改为方案B

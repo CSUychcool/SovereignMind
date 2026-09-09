@@ -1374,10 +1374,12 @@ function voiceSupported(){ return !!(window.SpeechRecognition||window.webkitSpee
 const micBtn=$('micBtn');
 let recStarted=false, mediaRec=null;
 
-function startBrowserRec(){   // 浏览器 SpeechRecognition (V1 兜底)
-  if(!voiceSupported()){ toast('浏览器不支持语音识别','err'); return; }
+let brRecog=null;
+function startBrowserRec(){   // 优先路径: 浏览器 SpeechRecognition (实时转写)
+  if(!voiceSupported()){ toast('浏览器不支持语音识别 → 本地 whisper','err'); startLocalAsr(); return; }
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   const recog=new SR(); recog.lang=cfg.voiceLang||'zh-CN'; recog.interimResults=true; recog.continuous=true;
+  brRecog=recog; recStarted=true; micBtn.classList.add('rec'); micBtn.title='结束语音';
   let finalText='';
   recog.onresult=e=>{
     let interim='';
@@ -1387,12 +1389,20 @@ function startBrowserRec(){   // 浏览器 SpeechRecognition (V1 兜底)
     }
     qi.value=finalText+interim; qi.dispatchEvent(new Event('input'));
   };
-  recog.onerror=e=>{ toast('语音识别错误: '+(e.error||''),'err'); stopVoiceUI(); };
-  recog.onend=()=>{ stopVoiceUI(); if(finalText.trim()){ qi.value=finalText.trim(); qi.focus(); } };
+  recog.onerror=e=>{
+    stopVoiceUI();
+    toast('浏览器识别('+(e.error||'?')+') → 回退本地 whisper','err');
+    startLocalAsr();          // 本地模型兜底
+  };
+  recog.onend=()=>{ brRecog=null; stopVoiceUI(); if(finalText.trim()){ qi.value=finalText.trim(); qi.focus(); } };
   recog.start();
+  toast('🎤 请说话…');
 }
-micBtn.addEventListener('click',async()=>{
+micBtn.addEventListener('click',()=>{
   if(recStarted){ stopVoice(); return; }
+  startBrowserRec();          // 浏览器优先; 失败/不支持则回退本地 whisper
+});
+async function startLocalAsr(){   // 兜底路径: MediaRecorder -> 16k WAV -> /api/asr (whisper)
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ toast('此环境不支持麦克风','err'); return; }
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:true});
@@ -1408,15 +1418,18 @@ micBtn.addEventListener('click',async()=>{
         const r=await fetch(apiBase()+'/api/asr',{method:'POST',headers:{Authorization:'Bearer '+token},body:wavBlob});
         const j=await r.json();
         if(j.code===0&&j.text){ qi.value=j.text; qi.dispatchEvent(new Event('input')); qi.focus(); toast('已识别: '+j.text.slice(0,30)+'…'); }
-        else { toast('本地识别不可用('+(j.msg||'?')+'), 浏览器兜底…','err'); startBrowserRec(); }
-      }catch(e){ toast('识别失败:'+e.message+' → 浏览器兜底','err'); startBrowserRec(); }
+        else { toast('本地识别失败: '+(j.msg||'?'),'err'); }
+      }catch(e){ toast('识别失败:'+e.message,'err'); }
     };
     mr.start();
     recStarted=true; micBtn.classList.add('rec'); micBtn.title='结束录音';
     toast('🎤 录音中, 再点一次结束');
   }catch(e){ toast('麦克风不可用:'+e.message,'err'); }
-});
-function stopVoice(){ if(mediaRec&&mediaRec.state!=='inactive') mediaRec.stop(); }
+}
+function stopVoice(){
+  if(mediaRec&&mediaRec.state!=='inactive'){ mediaRec.stop(); return; }
+  if(brRecog){ try{ brRecog.stop(); }catch{} brRecog=null; stopVoiceUI(); }
+}
 function stopVoiceUI(){ recStarted=false; micBtn.classList.remove('rec'); micBtn.title='语音输入'; }
 
 /* ---- WAV 编码 + 16k 重采样 ---- */

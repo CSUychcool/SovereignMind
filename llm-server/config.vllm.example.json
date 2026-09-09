@@ -15,5 +15,15 @@
     "context_window": 32768,
     "reserve_output_tokens": 6000,
     "compaction_mode": "until_fit",
-    "max_compress_rounds": 5
+    "max_compress_rounds": 5,
+    "embed_host": "127.0.0.1",
+    "embed_port": 11434,
+    "embed_model": "nomic-embed-text",
+    "embed_dim": 768,
+    "rag_default_on": true,
+    "graph_default_on": false,
+    "rag_top_k": 5,
+    "rag_token_quota": 512,
+    "msg_recall_top_k": 6,
+    "recall_mode": "vector"
 }

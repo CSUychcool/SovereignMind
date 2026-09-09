@@ -51,6 +51,21 @@ public:
     //   "throttled"      : 旧方案, 新增>=summaryMinNewMessages 才触发, 每请求最多一轮
     std::string compactionMode = "until_fit";
     int maxCompressRounds = 5;        // until_fit 单请求最多压缩轮数(防死循环/防小预算卡死)
+
+    // ---- P1 embedding / RAG / 历史召回向量化 ----
+    std::string embedHost = "127.0.0.1";
+    int embedPort = 11434;            // 与聊天上游解耦: 固定 Ollama /api/embed
+    std::string embedModel = "nomic-embed-text";
+    int embedDim = 768;               // nomic-embed-text 输出维度
+    bool embedTaskPrefix = true;      // nomic 检索建议: 语料加 "search_document:", 提问加 "search_query:"
+    // RAG
+    bool ragDefaultOn = true;         // use_rag 请求默认 (无知识库时自动跳过)
+    bool graphDefaultOn = false;      // use_graph 请求默认 (构图固定做, 仅默认不用)
+    int ragTopK = 5;                  // 每次检索注入的 chunk 数
+    int ragTokenQuota = 512;          // 参考资料段注入预算上限(token)
+    // 历史会话召回
+    int msgRecallTopK = 6;            // 历史会话向量召回条数
+    std::string recallMode = "vector";// "vector"(向量优先, LIKE 兜底) | "like"(仅旧 LIKE 路径)
     // 可行历史 token 预算 = 窗口 - 输出预留 (若被前端/系统提示覆盖则动态减少)
     int usableHistoryTokens() const { return contextWindow - reserveOutputTokens; }
 

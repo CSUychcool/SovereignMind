@@ -76,6 +76,56 @@ static bool createTables() {
             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
             "INDEX(conv_id)"
         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS kb_documents ("
+            "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,"
+            "user_id INT UNSIGNED NOT NULL,"
+            "title VARCHAR(200) NOT NULL,"
+            "filename VARCHAR(255) NOT NULL,"
+            "chunk_count INT NOT NULL DEFAULT 0,"
+            "status ENUM('uploading','ready','failed') NOT NULL DEFAULT 'uploading',"
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "INDEX(user_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS kb_chunks ("
+            "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,"
+            "doc_id BIGINT UNSIGNED NOT NULL,"
+            "idx INT NOT NULL,"
+            "content MEDIUMTEXT NOT NULL,"
+            "meta_json VARCHAR(1024) DEFAULT '',"
+            "INDEX(doc_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS kb_entities ("
+            "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,"
+            "doc_id BIGINT UNSIGNED NOT NULL,"
+            "name VARCHAR(128) NOT NULL,"
+            "type VARCHAR(32) DEFAULT '',"
+            "INDEX(doc_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS kb_edges ("
+            "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,"
+            "doc_id BIGINT UNSIGNED NOT NULL,"
+            "from_entity_id BIGINT UNSIGNED NOT NULL,"
+            "to_entity_id BIGINT UNSIGNED NOT NULL,"
+            "relation VARCHAR(64) NOT NULL,"
+            "INDEX(doc_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS vec_index ("
+            "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,"
+            "kind ENUM('kb','msg') NOT NULL,"
+            "group_id BIGINT UNSIGNED NOT NULL,"
+            "item_id BIGINT UNSIGNED NOT NULL,"
+            "content MEDIUMTEXT NOT NULL,"
+            "vec BLOB NOT NULL,"
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "INDEX(kind, group_id), INDEX(kind, item_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS vec_state ("
+            "kind ENUM('kb','msg') NOT NULL,"
+            "group_id BIGINT UNSIGNED NOT NULL,"
+            "last_item_id BIGINT UNSIGNED NOT NULL DEFAULT 0,"
+            "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+            "PRIMARY KEY(kind, group_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     };
     for (const char* sql : ddl) {
         if (mysql_real_query(g_conn, sql, (unsigned long)strlen(sql)) != 0) {
@@ -201,6 +251,16 @@ std::string Db::value(int index) {
     unsigned int n = mysql_num_fields(g_result);
     if (index < 0 || (unsigned)index >= n) return "";
     return g_row[index] ? g_row[index] : "";
+}
+
+std::string Db::valueBlob(int index) {
+    if (!g_result || !g_row) return "";
+    unsigned int n = mysql_num_fields(g_result);
+    if (index < 0 || (unsigned)index >= n) return "";
+    if (!g_row[index]) return "";
+    unsigned long* lens = mysql_fetch_lengths(g_result);   // 列表长度里才有 BLOB 真实字节数
+    if (!lens) return "";
+    return std::string(g_row[index], (size_t)lens[index]);
 }
 
 void Db::close() {

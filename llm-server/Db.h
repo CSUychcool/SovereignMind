@@ -24,6 +24,8 @@ public:
     static bool query(const std::string& sql);
     static bool next();
     static std::string value(int index);
+    // 取列原始字节(含 '\0', 二进制安全, 供 BLOB 向量使用)
+    static std::string valueBlob(int index);
 
     static void close();
 

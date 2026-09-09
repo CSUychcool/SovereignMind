@@ -4,6 +4,8 @@
 #include "service/ConversationService.h"
 #include "service/LlmGateway.h"
 #include "service/TokenCounter.h"
+#include "service/EmbedClient.h"
+#include "service/KnowledgeService.h"
 #include "config/AppConfig.h"
 #include <json/json.h>
 #include <json/reader.h>
@@ -104,10 +106,27 @@ static std::string extractKeyword(const std::string& s) {
 
 static void joinKeyboardRecall(long long convId, const std::string& prompt,
                                int& budget, Json::Value& messages) {
-    std::string kw = extractKeyword(prompt);
-    if (kw.empty()) return;
+    const AppConfig& cfg = AppConfig::get();
     std::vector<MsgRow> hits;
-    ConversationService::searchMessages(convId, kw, 6, hits);
+
+    // P1-C 方案: 向量优先 (历史会话向量化), 无命中/LIKE 兜底
+    if (cfg.recallMode == "vector") {
+        std::vector<float> qvec;
+        if (EmbedClient::embed(prompt, /*asQuery=*/true, qvec)) {
+            KnowledgeService::ensureMsgVectors(convId);
+            KnowledgeService::msgVectorSearch(convId, qvec, cfg.msgRecallTopK, hits);
+            tprintf("[ChatHandler] P3 vector recall: %zu hits (conv %lld)\n", hits.size(), convId);
+            fflush(stdout);
+        }
+        if (hits.empty()) {
+            std::string kw = extractKeyword(prompt);      // 兜底: 旧 LIKE 召回
+            if (!kw.empty()) ConversationService::searchMessages(convId, kw, 6, hits);
+        }
+    } else {
+        std::string kw = extractKeyword(prompt);
+        if (!kw.empty()) ConversationService::searchMessages(convId, kw, 6, hits);
+    }
+
     int added = 0;
     for (const auto& h : hits) {
         int tok = TokenCounter::estimateTokens(h.content) + 4;
@@ -120,7 +139,7 @@ static void joinKeyboardRecall(long long convId, const std::string& prompt,
         added++;
     }
     if (added > 0) {
-        tprintf("[ChatHandler] P3 recall: +%d older msgs for kw='%.20s'\n", added, kw.c_str());
+        tprintf("[ChatHandler] P3 recall: +%d older msgs\n", added);
         fflush(stdout);
     }
 }
@@ -170,6 +189,42 @@ void ChatHandler::handle(HttpContext& ctx) {
         sysMsg["role"] = "system";
         sysMsg["content"] = systemPrompt;
         messages.append(sysMsg);
+    }
+
+    // ---- P1 RAG: 检索注入 (配额内; use_graph 附图谱邻域) ----
+    std::string refsText;
+    {
+        const AppConfig& cfg = AppConfig::get();
+        bool useRag = req.get("use_rag", cfg.ragDefaultOn).asBool();
+        bool useGraph = req.get("use_graph", cfg.graphDefaultOn).asBool();
+        if (useRag) {
+            std::vector<KbHit> hits;
+            if (KnowledgeService::retrieveHits(uid, prompt, cfg.ragTopK, hits)) {
+                std::string joined;
+                std::vector<long long> docIds;
+                for (const auto& h : hits) {
+                    joined += "---\n" + h.content + "\n";
+                    docIds.push_back(h.docId);
+                }
+                if (useGraph) {
+                    std::string g = KnowledgeService::graphContext(uid, docIds, 40);
+                    if (!g.empty()) joined = "【知识图谱邻域】\n" + g + "\n" + joined;
+                }
+                if (!joined.empty()) refsText = "【参考资料】\n" + joined;
+            }
+        }
+    }
+    if (!refsText.empty()) {
+        int refTok = TokenCounter::estimateTokens(refsText);
+        if (refTok < budget) {
+            budget -= refTok;
+            Json::Value rr;
+            rr["role"] = "system";
+            rr["content"] = refsText;
+            messages.append(rr);
+            tprintf("[ChatHandler] RAG refs injected (%d tok)\n", refTok);
+            fflush(stdout);
+        }
     }
 
     // P1: 滚动摘要并入上下文 (占预算, 在 history 之前, 让模型先"记住"旧事)

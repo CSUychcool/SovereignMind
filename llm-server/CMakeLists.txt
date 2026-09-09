@@ -52,6 +52,7 @@ set(LLM_SRCS
     Db.cpp
     AuthHandler.cpp
     ConvHandler.cpp
+    KnowledgeHandler.cpp
     route/Router.cpp
     config/AppConfig.cpp
     service/AuthService.cpp
@@ -59,6 +60,9 @@ set(LLM_SRCS
     service/LlmGateway.cpp
     service/ModelService.cpp
     service/TokenCounter.cpp
+    service/EmbedClient.cpp
+    service/VectorStore.cpp
+    service/KnowledgeService.cpp
     http_common/Response.cpp
 )
 

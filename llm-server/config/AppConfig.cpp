@@ -54,6 +54,18 @@ bool AppConfig::load(const char* configFile) {
     c.compactionMode = root.get("compaction_mode", c.compactionMode).asString();
     c.maxCompressRounds = root.get("max_compress_rounds", c.maxCompressRounds).asInt();
 
+    c.embedHost = root.get("embed_host", c.embedHost).asString();
+    c.embedPort = root.get("embed_port", c.embedPort).asInt();
+    c.embedModel = root.get("embed_model", c.embedModel).asString();
+    c.embedDim = root.get("embed_dim", c.embedDim).asInt();
+    c.embedTaskPrefix = root.get("embed_task_prefix", c.embedTaskPrefix).asBool();
+    c.ragDefaultOn = root.get("rag_default_on", c.ragDefaultOn).asBool();
+    c.graphDefaultOn = root.get("graph_default_on", c.graphDefaultOn).asBool();
+    c.ragTopK = root.get("rag_top_k", c.ragTopK).asInt();
+    c.ragTokenQuota = root.get("rag_token_quota", c.ragTokenQuota).asInt();
+    c.msgRecallTopK = root.get("msg_recall_top_k", c.msgRecallTopK).asInt();
+    c.recallMode = root.get("recall_mode", c.recallMode).asString();
+
     // db 段 (可选; 缺失则 hasDb=false, 鉴权/会话接口不可用)
     const Json::Value& db = root["db"];
     if (db.isObject()) {

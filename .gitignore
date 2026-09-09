@@ -5,6 +5,7 @@
 /*
 !/.gitignore
 !/README.md
+!/docs/
 
 !/llm-server/
 !/web/

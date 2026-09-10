@@ -1487,12 +1487,18 @@ function pumpTts(){
   src.onended=()=>{ ttsPlaying=false; ttsCurSrc=null; pumpTts(); };
   ttsCurSrc=src; ttsPlaying=true; src.start();
 }
-function showTtsBar(){ const b=$('ttsBar'); if(b) b.style.display=''; const l=$('ttsRateLbl'); if(l) l.textContent=ttsRateGet().toFixed(1)+'x'; }
-function finishTts(){ ttsPlaying=false; ttsCurSrc=null; ttsQueue=[]; ttsStreamEnd=false; ttsAbort=null; const b=$('ttsBar'); if(b) b.style.display='none'; }
+function showTtsBar(){ const b=$('ttsBar'); if(b) b.style.display='';
+  const p=$('ttsPauseBtn'); if(p) p.textContent='⏸';      // 新播放开始: 显示"播放中"符号
+  const l=$('ttsRateLbl'); if(l) l.textContent=ttsRateGet().toFixed(1)+'x'; }
+function finishTts(){ ttsPlaying=false; ttsCurSrc=null; ttsQueue=[]; ttsStreamEnd=false; ttsAbort=null;
+  const b=$('ttsBar'); if(b) b.style.display='none';
+  const p=$('ttsPauseBtn'); if(p) p.textContent='⏸';      // 复位为"播放中"符号
+  document.querySelectorAll('.tool-btn.speaking').forEach(x=>x.classList.remove('speaking')); }
 function ttsStop(){ if(ttsAbort) ttsAbort.abort(); try{ if(ttsCtx) ttsCtx.suspend(); }catch{} if(ttsCurSrc){ try{ttsCurSrc.stop()}catch{} } finishTts(); }
 
 // 只重置播放状态(不停/不 suspend AudioContext): 新一次播放调用, 避免把手势里创建好的 ctx 挂起
-function resetTts(){ ttsQueue=[]; ttsStreamEnd=false; if(ttsCurSrc){ try{ttsCurSrc.stop();}catch{} ttsCurSrc=null; } ttsPlaying=false; if(ttsAbort){ ttsAbort.abort(); ttsAbort=null; } }
+function resetTts(){ ttsQueue=[]; ttsStreamEnd=false; if(ttsCurSrc){ try{ttsCurSrc.stop();}catch{} ttsCurSrc=null; } ttsPlaying=false; if(ttsAbort){ ttsAbort.abort(); ttsAbort=null; }
+  document.querySelectorAll('.tool-btn.speaking').forEach(x=>x.classList.remove('speaking')); }
 
 async function playPipi(text){
   resetTts();

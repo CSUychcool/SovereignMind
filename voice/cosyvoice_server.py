@@ -7,8 +7,9 @@ CosyVoice2-0.5B TTS sidecar: 模型常驻 GPU, 为 llm-server 提供逐句合成
 - 语速由浏览器端 playbackRate 控制(CosyVoice 原速合成, 浏览器 time-stretch 无音调失真)
 用法: python tts_cosyvoice_server.py --port 9101 --model <CosyVoice2-0.5B目录>
 """
-import io, os, json, wave, argparse, logging, threading
+import io, os, json, wave, argparse, logging, threading, hashlib
 import numpy as np
+import torch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -61,12 +62,53 @@ def default_prompt_text():
             _prompt_text = ""
     return _prompt_text
 
+# ---- 音色特征缓存: 每个音色的 prompt 特征只提取一次, 之后每句跳过 CPU 特征提取 ----
+_voice_cache = {}   # key -> dict(prompt 侧特征)
+
+def build_prompt_cache(pwav, ptext):
+    front = _model.frontend
+    prompt_norm = front.text_normalize(ptext, split=False)
+    p_token, p_len = front._extract_text_token(prompt_norm)
+    feat, feat_len = front._extract_speech_feat(pwav)          # prompt 波形特征(24k)
+    token, token_len = front._extract_speech_token(pwav)       # prompt 语音 token
+    emb = front._extract_spk_embedding(pwav)                   # 说话人特征
+    return {'prompt_text': p_token, 'prompt_text_len': p_len,
+            'feat': feat, 'feat_len': feat_len,
+            'speech_token': token, 'speech_token_len': token_len,
+            'embedding': emb}
+
+def synth_with_cache(text, key):
+    """用缓存好的 prompt 特征合成; 与 inference_zero_shot 同键名镜像"""
+    front = _model.frontend
+    base = _voice_cache[key]
+    outs = []
+    for t in front.text_normalize(text, split=True):
+        if not isinstance(t, str):
+            continue
+        t_tok, t_len = front._extract_text_token(t)            # 每句只需 tokenize 文本(便宜)
+        token_len = min(int(base['feat'].shape[1] / 2), base['speech_token'].shape[1])
+        feat_s = base['feat'][:, :2 * token_len]
+        token_s = base['speech_token'][:, :token_len]
+        model_input = {'text': t_tok, 'text_len': t_len,
+                       'prompt_text': base['prompt_text'], 'prompt_text_len': base['prompt_text_len'],
+                       'llm_prompt_speech_token': token_s, 'llm_prompt_speech_token_len': token_len,
+                       'flow_prompt_speech_token': token_s, 'flow_prompt_speech_token_len': token_len,
+                       'prompt_speech_feat': feat_s, 'prompt_speech_feat_len': 2 * token_len,
+                       'llm_embedding': base['embedding'], 'flow_embedding': base['embedding']}
+        for mo in _model.model.tts(**model_input, stream=False, speed=1.0):
+            outs.append(mo['tts_speech'])
+    if not outs:
+        return None
+    speech = torch.cat(outs, dim=1) if len(outs) > 1 else outs[0]
+    return tensor_to_wav(speech)
+
 def synth(text, voice, prompt_text):
     """音色策略:
        1) 有内置音色(cosyvoice2 内置 spk) -> SFT
        2) 否则零样本克隆: voice=音色名(cosyvoice-voices) 或 wav 路径; 缺省取库内第一个
+       prompt 特征按音色缓存一次, 每句只 tokenize 文本 + GPU 生成
     """
-    global _model, _spks
+    global _model, _spks, _voice_cache
     if not _model:
         return None
     with _lock:
@@ -86,6 +128,18 @@ def synth(text, voice, prompt_text):
             log.warning("缺零样本 prompt 音频: %s", pwav)
             return None
         ptext = (prompt_text or ptext or default_prompt_text()) or text
+        key = voice if voice in _voices else ("path:" + pwav)
+        if prompt_text:                     # 自定 prompt 文本 -> 独立缓存键
+            key = key + ":" + hashlib.md5(ptext.encode()).hexdigest()[:8]
+        try:
+            if key not in _voice_cache:
+                _voice_cache[key] = build_prompt_cache(pwav, ptext)
+            wav = synth_with_cache(text, key)
+            if wav:
+                return wav
+            log.warning("cached synth 无输出, 走兜底")
+        except Exception as e:
+            log.warning("cached synth 失败(%s), 走 inference_zero_shot 兜底", e)
         for out in _model.inference_zero_shot(text, ptext, pwav, stream=False):
             return tensor_to_wav(out["tts_speech"])
     return None

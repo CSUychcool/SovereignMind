@@ -617,6 +617,11 @@ body > canvas#particleCanvas {
 .ctx-dot.sys { background:var(--accent); } .ctx-dot.rag { background:var(--cyan); } .ctx-dot.sum { background:var(--purple); } .ctx-dot.his { background:var(--green); } .ctx-dot.rec { background:var(--accent); } .ctx-dot.usr { background:var(--text-secondary); }
 .ctx-t { color:var(--text-primary); font-weight:600; min-width:80px; }
 .ctx-tok { color:var(--accent); font-size:11px; flex-shrink:0; margin-left:auto; }
+.ctx-arrow { color:var(--text-tertiary); font-size:10px; margin-left:4px; }
+.ctx-c .ctx-seg { cursor:pointer; }
+.ctx-c .ctx-seg:hover { background:var(--bg-level-3); }
+.ctx-full { display:none; padding:6px 14px 10px; font-size:12px; color:var(--text-secondary); white-space:pre-wrap; word-break:break-word; max-height:240px; overflow:auto; background:var(--code-bg); }
+.ctx-c.open .ctx-full { display:block; }
 
 /* Animations */
 @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
@@ -1678,15 +1683,23 @@ function renderCtxDrawer(raw){
   const m=JSON.parse(raw);
   const lbl={system:'系统',rag:'RAG 资料',summary:'摘要·要点',history:'历史',recall:'召回旧话',user:'问题'};
   const cls={system:'sys',rag:'rag',summary:'sum',history:'his',recall:'rec',user:'usr'};
-  let h=`<div class="ctx-sum">预算 ${m.usable} · 已用 ${m.used} (${m.percent}%)${m.hasOlder?' · 更旧未装 ✂':''}${m.recall?' · 关键词召回 ×'+((m.segments||[]).find(s=>s.type==='recall')?.extra?.count||0):''}</div>`;
-  (m.segments||[]).forEach(s=>{
+  const rec=(m.segments||[]).find(s=>s.type==='recall');
+  let h=`<div class="ctx-sum">预算 ${m.usable} · 已用 ${m.used} (${m.percent}%)${m.hasOlder?' · 更旧未装 ✂':''}${m.recall?' · 关键词召回 ×'+(rec?(rec.extra||{}).count||0:0):''}</div>`;
+  (m.segments||[]).forEach((s,i)=>{
     const ex=s.extra||{}; let t='';
     if(s.type==='history') t=ex.loaded?` · 装了 ${ex.loaded} 条${ex.truncated?'(截断✂)':''}`:'';
     else if(s.type==='recall') t=` +${ex.count||0} 条`;
     else if(s.type==='rag') t=` ×${ex.count||0}`;
-    h+=`<div class="ctx-seg"><span class="ctx-dot ${cls[s.type]||'usr'}"></span><span class="ctx-t">${lbl[s.type]||s.type}</span><span class="ctx-tok">${s.token||0} tok${t}</span></div>`;
+    const has=!!s.content;
+    h+=`<div class="ctx-c" data-i="${i}"><div class="ctx-seg"><span class="ctx-dot ${cls[s.type]||'usr'}"></span><span class="ctx-t">${lbl[s.type]||s.type}</span><span class="ctx-tok">${s.token||0} tok${t}</span>${has?' <span class="ctx-arrow">▸</span>':''}</div>${has?'<div class="ctx-full"></div>':''}</div>`;
   });
   $('ctxBody').innerHTML=h;
+  $('ctxBody').querySelectorAll('.ctx-c').forEach(c=>{
+    const s=(m.segments||[])[+c.dataset.i];
+    if(!s || !s.content) return;
+    c.querySelector('.ctx-full').textContent=s.content;   // textContent 防注入
+    c.addEventListener('click',()=>{ c.classList.toggle('open'); const a=c.querySelector('.ctx-arrow'); if(a) a.textContent=c.classList.contains('open')?'▾':'▸'; });
+  });
 }
 // 用量条也可打开抽屉(最近一次请求)
 if($('ctxRow')) $('ctxRow').style.cursor='pointer';

@@ -105,7 +105,8 @@ static std::string extractKeyword(const std::string& s) {
 }
 
 static int joinKeyboardRecall(long long convId, const std::string& prompt,
-                               int& budget, Json::Value& messages, int& outTok) {
+                               int& budget, Json::Value& messages, int& outTok,
+                               std::string& recallText) {
     outTok = 0;
     const AppConfig& cfg = AppConfig::get();
     std::vector<MsgRow> hits;
@@ -134,6 +135,8 @@ static int joinKeyboardRecall(long long convId, const std::string& prompt,
         if (budget - tok < 500) break;                // 至少留 500 token 余量给提问
         budget -= tok;
         outTok += tok;
+        if (!recallText.empty()) recallText += "\n";
+        recallText += h.role + ": " + h.content;
         Json::Value m;
         m["role"] = h.role;
         m["content"] = h.content;
@@ -189,6 +192,7 @@ void ChatHandler::handle(HttpContext& ctx) {
     Json::Value ctxSegs(Json::arrayValue);
     int sysTok = TokenCounter::estimateTokens(systemPrompt);
     int histTok = 0, histLoaded = 0, recallTok = 0, recallCount = 0, ragCount = 0;
+    std::string histText, recallText;
 
     // ---- 组装 OpenAI messages (system + [摘要] + history + user) ----
     Json::Value messages(Json::arrayValue);
@@ -197,7 +201,8 @@ void ChatHandler::handle(HttpContext& ctx) {
         sysMsg["role"] = "system";
         sysMsg["content"] = systemPrompt;
         messages.append(sysMsg);
-        Json::Value s; s["type"]="system"; s["role"]="system"; s["token"]=sysTok; ctxSegs.append(s);
+        Json::Value s; s["type"]="system"; s["role"]="system"; s["token"]=sysTok;
+        s["content"]=systemPrompt; ctxSegs.append(s);
     }
 
     // ---- P1 RAG: 检索注入 (配额内; use_graph 附图谱邻域) ----
@@ -234,7 +239,7 @@ void ChatHandler::handle(HttpContext& ctx) {
             tprintf("[ChatHandler] RAG refs injected (%d tok)\n", refTok);
             fflush(stdout);
             Json::Value s; s["type"]="rag"; s["role"]="system"; s["token"]=refTok;
-            Json::Value ex; ex["count"]=ragCount; s["extra"]=ex; ctxSegs.append(s);
+            Json::Value ex; ex["count"]=ragCount; s["extra"]=ex; s["content"]=refsText; ctxSegs.append(s);
         }
     }
 
@@ -248,7 +253,8 @@ void ChatHandler::handle(HttpContext& ctx) {
             sm["role"] = "user";
             sm["content"] = "【此前对话要点】\n" + summaryText;
             messages.append(sm);
-            Json::Value s; s["type"]="summary"; s["role"]="user"; s["token"]=sumTok; ctxSegs.append(s);
+            Json::Value s; s["type"]="summary"; s["role"]="user"; s["token"]=sumTok;
+            s["content"]=summaryText; ctxSegs.append(s);
         }
     }
 
@@ -268,21 +274,23 @@ void ChatHandler::handle(HttpContext& ctx) {
             m["content"] = h.content;
             messages.append(m);
             histTok += TokenCounter::estimateTokens(h.content) + 4;
+            histText += h.content + "\n";
             histLoaded++;
         }
         tprintf("[ChatHandler] db history loaded: %zu msgs (budget %d tok, older=%d)\n",
                 hs.size(), budget, hasOlder ? 1 : 0);
         fflush(stdout);
         if (histLoaded > 0) {
+            if (histText.size() > 20000) histText = histText.substr(0, 20000) + "\n…(截断显示)";
             Json::Value s; s["type"]="history"; s["role"]="user"; s["token"]=histTok;
-            Json::Value ex; ex["loaded"]=histLoaded; ex["truncated"]=hasOlder; s["extra"]=ex; ctxSegs.append(s);
+            Json::Value ex; ex["loaded"]=histLoaded; ex["truncated"]=hasOlder; s["extra"]=ex; s["content"]=histText; ctxSegs.append(s);
         }
         // P3: 预算仍有富余且窗口外还有更旧历史时, 用提问关键词召回
         if (hasOlder && budget > 1000)
-            recallCount = joinKeyboardRecall(convId, prompt, budget, messages, recallTok);
+            recallCount = joinKeyboardRecall(convId, prompt, budget, messages, recallTok, recallText);
         if (recallCount > 0) {
             Json::Value s; s["type"]="recall"; s["role"]="user"; s["token"]=recallTok;
-            Json::Value ex; ex["count"]=recallCount; s["extra"]=ex; ctxSegs.append(s);
+            Json::Value ex; ex["count"]=recallCount; s["extra"]=ex; s["content"]=recallText; ctxSegs.append(s);
         }
     }
 
@@ -291,7 +299,8 @@ void ChatHandler::handle(HttpContext& ctx) {
     userMsg["content"] = prompt;
     messages.append(userMsg);
     {
-        Json::Value s; s["type"]="user"; s["role"]="user"; s["token"]=TokenCounter::estimateTokens(prompt); ctxSegs.append(s);
+        Json::Value s; s["type"]="user"; s["role"]="user"; s["token"]=TokenCounter::estimateTokens(prompt);
+        s["content"]=prompt; ctxSegs.append(s);
     }
 
     // ---- 上下文透明: 汇总一次请求 manifest ----

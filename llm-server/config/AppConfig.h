@@ -76,6 +76,7 @@ public:
     std::string piperVoiceCfg = "/home/yc_21/server_ddz/voice/piper-voices/zh_CN-huayan-medium.onnx.json";
     std::string whisperPath = "/home/yc_21/server_ddz/voice/whisper.cpp/build/bin/whisper-cli";
     std::string whisperModel = "/home/yc_21/server_ddz/voice/whisper-models/ggml-base.bin";
+    std::string whisperLang = "zh";       // ASR 强制语言(本应用中文场景; 避免 base 模型误判语种)
     double ttsLengthScale = 1.0;      // piper 基准语速 (>1 慢, <1 快); 浏览器端另有 playbackRate 调速
     // 可行历史 token 预算 = 窗口 - 输出预留 (若被前端/系统提示覆盖则动态减少)
     int usableHistoryTokens() const { return contextWindow - reserveOutputTokens; }

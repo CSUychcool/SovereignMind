@@ -7,7 +7,7 @@ CosyVoice2-0.5B TTS sidecar: 模型常驻 GPU, 为 llm-server 提供逐句合成
 - 语速由浏览器端 playbackRate 控制(CosyVoice 原速合成, 浏览器 time-stretch 无音调失真)
 用法: python tts_cosyvoice_server.py --port 9101 --model <CosyVoice2-0.5B目录>
 """
-import io, json, wave, argparse, logging, threading
+import io, os, json, wave, argparse, logging, threading
 import numpy as np
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -15,7 +15,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("cosy")
 
 _model, _spks, _lock = None, [], threading.Lock()
-DEFAULT_VOICE = "中文女"
+BASE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_PROMPT_WAV = os.path.join(BASE, "cosyvoice-prompt", "zero_shot_prompt.wav")
+_prompt_text = None
 
 def load_cosy(model_dir: str):
     global _model, _spks
@@ -34,15 +36,37 @@ def tensor_to_wav(speech) -> bytes:
         w.writeframes(pcm.tobytes())
     return buf.getvalue()
 
-def synth(text, voice):
+def default_prompt_text():
+    global _prompt_text
+    if _prompt_text is None:
+        try:
+            with open(DEFAULT_PROMPT_WAV + ".txt", "r", encoding="utf-8") as f:
+                _prompt_text = f.read().strip()
+        except Exception:
+            _prompt_text = ""
+    return _prompt_text
+
+def synth(text, voice, prompt_text):
+    """音色策略:
+       1) 有内置音色(cosyvoice2 内置 spk) -> SFT
+       2) 否则零样本克隆: voice 传 wav 路径即定制音色; 未传用默认 prompt 资产
+    """
     global _model, _spks
-    if not _model: return None
-    if voice not in _spks: voice = DEFAULT_VOICE if DEFAULT_VOICE in _spks else (_spks[0] if _spks else None)
-    if not voice: return None
-    with _lock:  # 同一实例串行推理
-        for out in _model.inference_sft(text, voice, stream=False):
-            wav = tensor_to_wav(out["tts_speech"])
-            return wav
+    if not _model:
+        return None
+    with _lock:
+        if _spks:
+            spk = voice if (voice and voice in _spks) else (_spks[0] if _spks else None)
+            if spk:
+                for out in _model.inference_sft(text, spk, stream=False):
+                    return tensor_to_wav(out["tts_speech"])
+        pwav = voice if (voice and os.path.isfile(voice)) else DEFAULT_PROMPT_WAV
+        if not os.path.isfile(pwav):
+            log.warning("缺零样本 prompt 音频: %s", pwav)
+            return None
+        ptext = (prompt_text or default_prompt_text()) or text
+        for out in _model.inference_zero_shot(text, ptext, pwav, stream=False):
+            return tensor_to_wav(out["tts_speech"])
     return None
 
 class H(BaseHTTPRequestHandler):
@@ -62,10 +86,11 @@ class H(BaseHTTPRequestHandler):
         try:
             data = json.loads(self._read_body().decode("utf-8", "ignore"))
             text = (data.get("text") or "").strip()
-            voice = data.get("voice") or DEFAULT_VOICE
+            voice = data.get("voice") or ""                    # 音色: 内置名 或 自定义 wav 路径(定制/克隆)
+            prompt_text = data.get("prompt_text") or ""        # 零样本时可选
         except Exception:
             self.send_response(400); self.end_headers(); return
-        wav = synth(text, voice) if text else None
+        wav = synth(text, voice, prompt_text) if text else None
         if not wav:
             self.send_response(500); self.end_headers(); return
         self.send_response(200)

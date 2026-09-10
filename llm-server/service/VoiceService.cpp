@@ -225,7 +225,7 @@ bool VoiceService::transcribe(const string& wavData, string& text) {
 
     const AppConfig& c = AppConfig::get();
     string cmd = "\"" + whisperBin() + "\" -m \"" + c.whisperModel + "\" -f \"" +
-                 base + ".wav\" -otxt -np -nt 2>/dev/null";
+                 base + ".wav\" -otxt -np -nt -l " + c.whisperLang + " 2>/dev/null";
     int rc = system(cmd.c_str());
 
     bool ok = false;

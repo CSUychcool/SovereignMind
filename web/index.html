@@ -1542,8 +1542,12 @@ function plainForTts(t){
     .trim();
 }
 function speakText(text,btn){
-  if(ttsEnginePick()==='piper'){ if(btn&&btn.classList.contains('speaking')){ ttsStop(); btn.classList.remove('speaking'); return; } if(btn)btn.classList.add('speaking'); playPipi(text); }
-  else systemSpeak(text,btn);
+  if(ttsEnginePick()==='piper'){
+    if(btn&&btn.classList.contains('speaking')){ ttsStop(); btn.classList.remove('speaking'); return; }
+    ttsCtxGet();   // 在用户点击手势内同步创建/恢复 AudioContext, 绕过浏览器自动播放策略(否则不主动播)
+    if(btn)btn.classList.add('speaking');
+    playPipi(text);
+  } else systemSpeak(text,btn);
 }
 
 /* TTS 控制条 */

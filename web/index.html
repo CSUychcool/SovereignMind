@@ -592,6 +592,7 @@ body > canvas#particleCanvas {
 .switch input:checked + .slider { background:hsla(var(--accent-hue),82%,64%,.35); }
 .switch input:checked + .slider:before { transform:translateX(18px); background:var(--accent); }
 .kb-upload-box { border:1px dashed var(--border-mid); border-radius:var(--r-sm); padding:10px; }
+.kb-upload-box.drag { border-color:var(--accent); background:hsla(var(--accent-hue),82%,64%,.06); }
 .kb-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--r-sm); background:var(--bg-level-3); margin-bottom:6px; font-size:12.5px; }
 .kb-item .kb-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .kb-item .kb-meta { color:var(--text-tertiary); font-size:11px; flex-shrink:0; }
@@ -777,7 +778,6 @@ body > canvas#particleCanvas {
     <div class="form-group">
       <button class="btn btn-act" id="settSwitchBtn" style="width:100%">切换模型</button>
     </div>
-    <div class="form-group"><label class="form-label">请求方法</label><select class="form-field" id="settMethod"><option value="POST">POST</option><option value="GET">GET</option></select></div>
     <div class="form-group"><label class="form-label">流式响应 (SSE)</label><select class="form-field" id="settStream"><option value="true">开启</option><option value="false">关闭</option></select></div>
     <div class="section-title" style="margin-top:var(--sp-xl)">系统提示词</div>
     <div class="form-group"><label class="form-label">自定义 AI 人设</label><textarea class="form-field form-textarea" id="settSystemPrompt">你是一个有帮助的AI助手。请用简洁清晰的中文回答问题。如果不确定，请坦诚说明。</textarea></div>
@@ -787,10 +787,16 @@ body > canvas#particleCanvas {
     <div class="section-title" style="margin-top:var(--sp-xl)">RAG 知识库</div>
     <div class="switch-row"><label>提问时使用知识库检索</label><label class="switch"><input type="checkbox" id="settUseRag"><span class="slider"></span></label></div>
     <div class="switch-row"><label>使用时附知识图谱 (GRAPH)</label><label class="switch"><input type="checkbox" id="settUseGraph"><span class="slider"></span></label></div>
-    <div class="kb-upload-box">
+    <div class="kb-upload-box" id="kbDrop">
       <div class="form-group"><label class="form-label">文件名 (txt/md)</label><input class="form-field" id="kbFilename" value="notes.md" placeholder="notes.md"></div>
-      <div class="form-group"><label class="form-label">文档内容</label><textarea class="form-field form-textarea" id="kbContent" rows="4" placeholder="粘贴文档内容…"></textarea></div>
+      <div class="form-group"><label class="form-label">文档内容（可粘贴，或直接把 .txt/.md 文件拖进来/点此框选择）</label><textarea class="form-field form-textarea" id="kbContent" rows="4" placeholder="粘贴文档内容…"></textarea></div>
       <button class="btn btn-outline" id="kbUploadBtn" style="width:100%;font-size:12px">📥 上传到知识库</button>
+      <input type="file" id="kbFile" accept=".txt,.md" style="display:none">
+    </div>
+    <div id="kbProgress" style="display:none;margin-top:var(--sp-sm)">
+      <div class="ctx-row"><span class="ctx-label" id="kbStep" style="min-width:auto">准备…</span>
+        <div class="ctx-track"><div class="ctx-fill" id="kbProgBar" style="transition:none"></div></div>
+      </div>
     </div>
     <div id="kbList" style="margin-top:var(--sp-md)"></div>
     <div class="section-title" style="margin-top:var(--sp-xl)">语音 (V1 本地引擎)</div>
@@ -1261,7 +1267,7 @@ async function sendDirect(query){
 
 async function fetchStream(query,row){
   const payload={conv_id:String(curId||''),prompt:query,system_prompt:cfg.systemPrompt,use_rag:cfg.useRag,use_graph:cfg.useGraph};
-  const resp=await fetch(cfg.apiUrl,withAuth({method:cfg.method,body:cfg.method==='GET'?undefined:JSON.stringify(payload),signal:ac?.signal}));
+  const resp=await fetch(cfg.apiUrl,withAuth({method:'POST',body:JSON.stringify(payload),signal:ac?.signal}));
   if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
   const reader=resp.body.getReader();const dec=new TextDecoder();let full='',buffer='',streamEnded=false;
   const el=row.querySelector('.msg-bubble');el.innerHTML='<span class="cursor-blink"></span>';
@@ -1289,7 +1295,7 @@ async function fetchStream(query,row){
 
 async function fetchPlain(query){
   const payload={conv_id:String(curId||''),prompt:query,system_prompt:cfg.systemPrompt,use_rag:cfg.useRag,use_graph:cfg.useGraph};
-  const resp=await fetch(cfg.apiUrl,withAuth({method:cfg.method,body:cfg.method==='GET'?undefined:JSON.stringify(payload),signal:ac?.signal}));
+  const resp=await fetch(cfg.apiUrl,withAuth({method:'POST',body:JSON.stringify(payload),signal:ac?.signal}));
   if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
   const data=await resp.json();
   return data.answer||data.text||data.content||data.message||data.response||data.output||'';
@@ -1597,15 +1603,34 @@ async function loadKb(){
     el.innerHTML=docs.map(d=>`<div class="kb-item"><span>📄</span><span class="kb-name" title="${escT(d.filename)}">${escT(d.title)}</span><span class="kb-meta">${d.chunk_count}块·${d.status}</span><button class="kb-del" onclick="kbDelete('${d.id}')">🗑</button></div>`).join('');
   }catch{ el.innerHTML='<div class="kb-empty">知识库加载失败</div>'; }
 }
+function showKbProg(t,p){ const d=$('kbProgress'); if(d) d.style.display=''; const s=$('kbStep'); if(s) s.textContent=t; const f=$('kbProgBar'); if(f) f.style.width=(p||0)+'%'; }
+function hideKbProg(){ const d=$('kbProgress'); if(d) d.style.display='none'; }
 async function kbUpload(){
   const filename=$('kbFilename').value.trim()||'notes.md';
   const content=$('kbContent').value;
-  if(!content.trim()){ toast('文档内容为空','err'); return; }
+  if(!content.trim()){ toast('文档内容为空(可粘贴或拖入 .txt/.md)','err'); return; }
+  showKbProg('已发送，服务端正在 切块→向量化→构图…',30);
   const r=await api('/api/kb/upload',{method:'POST',body:JSON.stringify({title:filename,filename,content})}).catch(()=>null);
   const j=r?await r.json().catch(()=>({code:1})):{code:1};
-  if(j.code===0){ toast('已上传到知识库'); $('kbContent').value=''; loadKb(); }
-  else toast(j.msg||'上传失败','err');
+  if(j.code===0){ showKbProg('✅ 上传完成(切块/向量化/构图均已就绪)',100); setTimeout(()=>{hideKbProg(); loadKb();},1300); toast('已上传并建图'); $('kbContent').value=''; }
+  else { hideKbProg(); toast(j.msg||'上传失败','err'); }
 }
+// KB 文件: 拖拽 / 点框选文件 / 粘贴 三种方式并存
+function readKbFile(f){
+  if(!f || !/\.(txt|md)$/i.test(f.name||'')){ toast('仅支持 .txt / .md','err'); return; }
+  const rd=new FileReader();
+  rd.onload=()=>{ $('kbFilename').value=f.name; $('kbContent').value=String(rd.result||''); toast('已读取 '+f.name+', 自动上传…'); kbUpload(); };
+  rd.onerror=()=>toast('读取文件失败','err');
+  rd.readAsText(f);
+}
+(function kbDropInit(){
+  const box=$('kbDrop'); if(!box) return;
+  box.addEventListener('dragover',e=>{ e.preventDefault(); box.classList.add('drag'); });
+  box.addEventListener('dragleave',()=>box.classList.remove('drag'));
+  box.addEventListener('drop',e=>{ e.preventDefault(); box.classList.remove('drag'); readKbFile(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]); });
+  box.addEventListener('click',e=>{ if(e.target.closest('button,textarea,input,label')) return; const fi=$('kbFile'); if(fi) fi.click(); });
+  const fi=$('kbFile'); if(fi) fi.addEventListener('change',e=>{ readKbFile(e.target.files&&e.target.files[0]); e.target.value=''; });
+})();
 async function kbDelete(id){
   if(!confirm('删除该知识文档？'))return;
   const r=await api('/api/kb/delete',{method:'POST',body:JSON.stringify({id:String(id)})}).catch(()=>null);
@@ -1624,7 +1649,7 @@ $('closeSideBtn').addEventListener('click',closeSB);
 $('sidebarBack').addEventListener('click',closeSB);
 
 function openSet(){
-  $('settApiUrl').value=cfg.apiUrl; $('settMethod').value=cfg.method;
+  $('settApiUrl').value=cfg.apiUrl;
   $('settStream').value=String(cfg.stream); $('settSystemPrompt').value=cfg.systemPrompt;
   $('settFontSz').value=String(cfg.fontSize); $('settSpeed').value=String(cfg.speed);
   fillModelSelect($('badgeModel').textContent.replace(/^[^ ]+\s+/,'').trim()); // 选中当前模型
@@ -1641,7 +1666,7 @@ $('closeSetBtn').addEventListener('click',closeSet);
 $('setBack').addEventListener('click',closeSet);
 
 $('doSaveSet').addEventListener('click',()=>{
-  cfg={apiUrl:$('settApiUrl').value,method:$('settMethod').value,stream:$('settStream').value==='true',systemPrompt:$('settSystemPrompt').value,fontSize:parseInt($('settFontSz').value),speed:parseInt($('settSpeed').value)||30,useRag:$('settUseRag').checked,useGraph:$('settUseGraph').checked,readAloud:$('settReadAloud').checked,voiceLang:$('settVoiceLang').value,ttsEngine:$('settTtsEngine').value,ttsRate:parseFloat($('settTtsRate').value)||1,voice:$('settVoice').value};
+  cfg={apiUrl:$('settApiUrl').value,method:cfg.method||'POST',stream:$('settStream').value==='true',systemPrompt:$('settSystemPrompt').value,fontSize:parseInt($('settFontSz').value),speed:parseInt($('settSpeed').value)||30,useRag:$('settUseRag').checked,useGraph:$('settUseGraph').checked,readAloud:$('settReadAloud').checked,voiceLang:$('settVoiceLang').value,ttsEngine:$('settTtsEngine').value,ttsRate:parseFloat($('settTtsRate').value)||1,voice:$('settVoice').value};
   saveCfg(cfg); applyFont(cfg.fontSize);closeSet();toast('设置已保存');
 });
 $('doResetSet').addEventListener('click',()=>{cfg={...DEF};localStorage.removeItem(CFG);applyFont(cfg.fontSize);openSet();toast('已恢复默认')});

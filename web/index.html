@@ -1467,13 +1467,16 @@ async function toWav16k(blob){
 
 /* ---- /api/tts SSE -> WebAudio 顺序播放队列 (暂停/继续/调速) ---- */
 let ttsCtx=null, ttsQueue=[], ttsCurSrc=null, ttsPlaying=false, ttsAbort=null, ttsStreamEnd=false;
-function ttsCtxGet(){ if(!ttsCtx) ttsCtx=new (window.AudioContext||window.webkitAudioContext)(); if(ttsCtx.state==='suspended') ttsCtx.resume(); return ttsCtx; }
+function ttsCtxGet(){ if(!ttsCtx) ttsCtx=new (window.AudioContext||window.webkitAudioContext)(); if(ttsCtx.state==='suspended') ttsCtx.resume(); console.log('[tts] ctx state=', ttsCtx.state); return ttsCtx; }
 function ttsRateGet(){ const s=$('settTtsRate'); return s?parseFloat(s.value)||1 : (cfg.ttsRate||1); }
 function ttsEnginePick(){ const s=$('settTtsEngine'); return s?s.value:(cfg.ttsEngine||'piper'); }
 function b64ToBuf(b64){ const bin=atob(b64), u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i); return u.buffer; }
 
 function pumpTts(){
-  if(ttsPlaying || (ttsCtx&&ttsCtx.state==='suspended')) return;
+  if(ttsPlaying || (ttsCtx&&ttsCtx.state==='suspended')){
+    console.log('[tts] pump skip', {playing:ttsPlaying, state:ttsCtx&&ttsCtx.state, q:ttsQueue.length});
+    return;
+  }
   if(!ttsQueue.length){ if(ttsStreamEnd&&!ttsPlaying) finishTts(); return; }
   const ctx=ttsCtxGet(), buf=ttsQueue.shift();
   const src=ctx.createBufferSource(); src.buffer=buf; src.playbackRate.value=ttsRateGet();
@@ -1485,12 +1488,15 @@ function showTtsBar(){ const b=$('ttsBar'); if(b) b.style.display=''; const l=$(
 function finishTts(){ ttsPlaying=false; ttsCurSrc=null; ttsQueue=[]; ttsStreamEnd=false; ttsAbort=null; const b=$('ttsBar'); if(b) b.style.display='none'; }
 function ttsStop(){ if(ttsAbort) ttsAbort.abort(); try{ if(ttsCtx) ttsCtx.suspend(); }catch{} if(ttsCurSrc){ try{ttsCurSrc.stop()}catch{} } finishTts(); }
 
+// 只重置播放状态(不停/不 suspend AudioContext): 新一次播放调用, 避免把手势里创建好的 ctx 挂起
+function resetTts(){ ttsQueue=[]; ttsStreamEnd=false; if(ttsCurSrc){ try{ttsCurSrc.stop();}catch{} ttsCurSrc=null; } ttsPlaying=false; if(ttsAbort){ ttsAbort.abort(); ttsAbort=null; } }
+
 async function playPipi(text){
-  ttsStop();
+  resetTts();
   showTtsBar();
   ttsStreamEnd=false;
   ttsAbort=new AbortController();
-  console.log('[TTS send]', plainForTts(text).slice(0,160));   // 诊断: 实际发给后端朗读的文本
+  console.log('[TTS send]', plainForTts(text).slice(0,160), '| ctx=', ttsCtxGet().state);   // 诊断: 实际发给后端朗读的文本
   try{
     const resp=await fetch(apiBase()+'/api/tts', withAuth({method:'POST',body:JSON.stringify({text,voice:cfg.voice||'linzhi'}),signal:ttsAbort.signal}));
     if(!resp.ok) throw new Error('HTTP '+resp.status);
@@ -1511,6 +1517,7 @@ async function playPipi(text){
       }
     }
     ttsStreamEnd=true; pumpTts();
+    console.log('[tts] stream done', {end:ttsStreamEnd, q:ttsQueue.length, ctx:ttsCtx&&ttsCtx.state});
   }catch(e){
     if(e.name!=='AbortError'){ toast('朗读失败(本地 TTS 不可用): '+e.message,'err'); }
     finishTts();

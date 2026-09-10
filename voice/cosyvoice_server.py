@@ -66,6 +66,26 @@ def default_prompt_text():
 _voice_cache = {}   # key -> dict(prompt 侧特征)
 USE_CACHE = os.environ.get("VOICE_CACHE") == "1"   # 默认关闭(原生推理最稳), 需要加速再开
 
+# ---- 在线 TTS(edge-tts, 微软 API): 联网时更自然; 断网自动回退本地音色 ----
+EDGE_VOICES = {
+    "edge_xiaoxiao": "zh-CN-XiaoxiaoNeural",   # 晓晓(女, 柔和亲切)
+    "edge_xiaoyi":   "zh-CN-XiaoyiNeural",     # 晓伊(女)
+    "edge_yunxi":    "zh-CN-YunxiNeural",      # 云希(男)
+}
+
+def synth_edge(text, voice_id):
+    """微软 Edge TTS(在线) -> mp3 字节; 需联网"""
+    import asyncio
+    import edge_tts
+    async def run():
+        out = b""
+        cm = edge_tts.Communicate(text, voice_id)
+        async for chunk in cm.stream():
+            if chunk["type"] == "audio":
+                out += chunk["data"]
+        return out
+    return asyncio.run(run())
+
 def build_prompt_cache(pwav, ptext):
     front = _model.frontend
     prompt_norm = front.text_normalize(ptext, split=False)
@@ -112,6 +132,15 @@ def synth(text, voice, prompt_text):
     global _model, _spks, _voice_cache
     if not _model:
         return None
+    # ---- 在线 edge-tts: 联网优先, 失败自动回退本地默认音色 ----
+    if voice in EDGE_VOICES:
+        try:
+            data = synth_edge(text, EDGE_VOICES[voice])
+            if data:
+                return data
+        except Exception as e:
+            log.warning("edge-tts %s 失败(%s), 回退本地音色", voice, e)
+        voice = "linzhi"   # 断网回退: 本地cosyvoice 默认音色
     with _lock:
         if _spks:
             spk = voice if (voice and voice in _spks) else (_spks[0] if _spks else None)
@@ -166,7 +195,7 @@ class H(BaseHTTPRequestHandler):
             self.send_response(200); self.send_header("Content-Type", "application/json")
             self.end_headers()
             import json as _j
-            self.wfile.write(_j.dumps(sorted(_voices.keys())).encode())
+            self.wfile.write(_j.dumps(sorted(list(_voices.keys()) + list(EDGE_VOICES.keys()))).encode())
         else:
             self.send_response(404); self.end_headers()
     def do_POST(self):

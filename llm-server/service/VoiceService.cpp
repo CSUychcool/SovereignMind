@@ -123,22 +123,19 @@ string VoiceService::runPiper(const string& sentence, double lengthScale) {
 
 void VoiceService::streamTts(const string& text, double lengthScale, const string& voice, Response& resp) {
     resp.beginStream();
-    auto sents = splitSentences(text);
-    tprintf("[Voice] TTS sentences: %zu (backend=%s voice=%s)\n",
-            sents.size(), AppConfig::get().ttsBackend.c_str(), voice.c_str());
+    tprintf("[Voice] TTS whole-text %zu chars (backend=%s voice=%s)\n",
+            text.size(), AppConfig::get().ttsBackend.c_str(), voice.c_str());
     fflush(stdout);
-    int idx = 0;
-    for (auto& s : sents) {
-        string wav = synthSentence(s, lengthScale, voice);
-        if (wav.empty()) {
-            tprintf("[Voice] tts fail on: %.40s\n", s.c_str());
-            continue;
-        }
+    // 整段一口合成, sidecar 内部切句一次推理, 避免"句-句"间隔
+    string wav = synthSentence(text, lengthScale, voice);
+    if (!wav.empty()) {
         Json::Value ev;
-        ev["s"] = idx;
+        ev["s"] = 0;
         ev["b64"] = base64Encode(wav);
         resp.sseChunk(Json::FastWriter().write(ev));
-        ++idx;
+    } else {
+        tprintf("[Voice] tts fail on whole text\n");
+        fflush(stdout);
     }
     resp.sseChunk("[DONE]");
     resp.finish();

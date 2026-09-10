@@ -1,6 +1,7 @@
 #include "VoiceHandler.h"
 #include "net/HttpContext.h"
 #include "service/VoiceService.h"
+#include "config/AppConfig.h"
 #include <json/json.h>
 #include <json/reader.h>
 #include <algorithm>
@@ -18,10 +19,11 @@ void VoiceHandler::handle(HttpContext& ctx) {
         }
         string text = req.get("text", "").asString();
         if (text.empty()) { ctx.resp.sendErr("text 为空"); return; }
+        string voice = req.get("voice", AppConfig::get().voiceDefault).asString();
         double rate = req.get("rate", 1.0).asDouble();
         rate = max(0.5, min(2.0, rate));                 // 前端调速 0.5x~2x
         double ls = 1.0 / rate;                          // piper length-scale
-        VoiceService::streamTts(text, ls, ctx.resp);     // 流式 SSE, 结束后由 Response 关闭 fd
+        VoiceService::streamTts(text, ls, voice, ctx.resp);  // 流式 SSE, 结束后由 Response 关闭 fd
         return;
     }
 

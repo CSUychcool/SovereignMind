@@ -796,6 +796,7 @@ body > canvas#particleCanvas {
     <div class="section-title" style="margin-top:var(--sp-xl)">语音 (V1 本地引擎)</div>
     <div class="switch-row"><label>识别语言</label><select class="form-field" id="settVoiceLang" style="width:140px"><option value="zh-CN">中文</option><option value="en-US">English</option></select></div>
     <div class="switch-row"><label>TTS 引擎</label><select class="form-field" id="settTtsEngine" style="width:170px"><option value="piper">本地引擎 (CosyVoice2/piper)</option><option value="system">系统语音 (浏览器)</option></select></div>
+    <div class="switch-row"><label>音色</label><select class="form-field" id="settVoice" style="width:170px"><option value="linzhi_a">林志玲 · 镜头前</option><option value="linzhi_b">林志玲 · 亲爱的朋友们</option><option value="me">我的声音</option></select></div>
     <div class="switch-row"><label>朗读语速</label><input class="form-field" id="settTtsRate" type="range" min="0.5" max="1.5" step="0.1" value="1" style="width:140px"></div>
     <div class="switch-row"><label>回答完成后自动朗读</label><label class="switch"><input type="checkbox" id="settReadAloud"><span class="slider"></span></label></div>
     <div class="hint" style="margin-bottom:var(--sp-md)">🎤 用 whisper 本地转写; 🔊 用 piper 逐句流式朗读, 支持暂停/调速</div>
@@ -829,7 +830,7 @@ function defApiUrl(){
   }catch{}
   return 'http://localhost:9000/api/chat';
 }
-const DEF={apiUrl:defApiUrl(),method:'POST',stream:true,systemPrompt:'你是一个有帮助的AI助手。请用简洁清晰的中文回答问题。如果不确定，请坦诚说明。',fontSize:14,speed:30,useRag:true,useGraph:false,readAloud:false,voiceLang:'zh-CN',ttsEngine:'piper',ttsRate:1};
+const DEF={apiUrl:defApiUrl(),method:'POST',stream:true,systemPrompt:'你是一个有帮助的AI助手。请用简洁清晰的中文回答问题。如果不确定，请坦诚说明。',fontSize:14,speed:30,useRag:true,useGraph:false,readAloud:false,voiceLang:'zh-CN',ttsEngine:'piper',ttsRate:1,voice:'linzhi_a'};
 // 可用模型（与后端 /api/control/switch 协议对应）
 const MODELS=[
   {backend:'ollama', model:'qwen2.5:7b-instruct-q4_K_M', label:'Qwen2.5 7B (Ollama)'},
@@ -1488,7 +1489,7 @@ async function playPipi(text){
   ttsStreamEnd=false;
   ttsAbort=new AbortController();
   try{
-    const resp=await fetch(apiBase()+'/api/tts', withAuth({method:'POST',body:JSON.stringify({text}),signal:ttsAbort.signal}));
+    const resp=await fetch(apiBase()+'/api/tts', withAuth({method:'POST',body:JSON.stringify({text,voice:cfg.voice||'linzhi_a'}),signal:ttsAbort.signal}));
     if(!resp.ok) throw new Error('HTTP '+resp.status);
     const reader=resp.body.getReader(), dec=new TextDecoder(); let buffer='';
     while(true){
@@ -1591,6 +1592,7 @@ function openSet(){
   $('settUseRag').checked=cfg.useRag; $('settUseGraph').checked=cfg.useGraph;
   $('settReadAloud').checked=cfg.readAloud; $('settVoiceLang').value=cfg.voiceLang||'zh-CN';
   $('settTtsEngine').value=cfg.ttsEngine||'piper'; $('settTtsRate').value=cfg.ttsRate||1;
+  $('settVoice').value=cfg.voice||'linzhi_a';
   loadKb();
   $('settingsPanel').classList.add('open'); $('setBack').classList.add('show');
 }
@@ -1600,7 +1602,7 @@ $('closeSetBtn').addEventListener('click',closeSet);
 $('setBack').addEventListener('click',closeSet);
 
 $('doSaveSet').addEventListener('click',()=>{
-  cfg={apiUrl:$('settApiUrl').value,method:$('settMethod').value,stream:$('settStream').value==='true',systemPrompt:$('settSystemPrompt').value,fontSize:parseInt($('settFontSz').value),speed:parseInt($('settSpeed').value)||30,useRag:$('settUseRag').checked,useGraph:$('settUseGraph').checked,readAloud:$('settReadAloud').checked,voiceLang:$('settVoiceLang').value,ttsEngine:$('settTtsEngine').value,ttsRate:parseFloat($('settTtsRate').value)||1};
+  cfg={apiUrl:$('settApiUrl').value,method:$('settMethod').value,stream:$('settStream').value==='true',systemPrompt:$('settSystemPrompt').value,fontSize:parseInt($('settFontSz').value),speed:parseInt($('settSpeed').value)||30,useRag:$('settUseRag').checked,useGraph:$('settUseGraph').checked,readAloud:$('settReadAloud').checked,voiceLang:$('settVoiceLang').value,ttsEngine:$('settTtsEngine').value,ttsRate:parseFloat($('settTtsRate').value)||1,voice:$('settVoice').value};
   saveCfg(cfg); applyFont(cfg.fontSize);closeSet();toast('设置已保存');
 });
 $('doResetSet').addEventListener('click',()=>{cfg={...DEF};localStorage.removeItem(CFG);applyFont(cfg.fontSize);openSet();toast('已恢复默认')});

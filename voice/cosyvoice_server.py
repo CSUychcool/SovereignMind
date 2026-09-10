@@ -16,8 +16,23 @@ log = logging.getLogger("cosy")
 
 _model, _spks, _lock = None, [], threading.Lock()
 BASE = os.path.dirname(os.path.abspath(__file__))
+VOICES_DIR = os.path.join(BASE, "cosyvoice-voices")
 DEFAULT_PROMPT_WAV = os.path.join(BASE, "cosyvoice-prompt", "zero_shot_prompt.wav")
+_voices = {}   # name -> (wav, txt)
 _prompt_text = None
+
+def load_voices():
+    """扫描 cosyvoice-voices/*.wav (+同名 .txt) 作为可用音色表"""
+    global _voices
+    _voices = {}
+    if not os.path.isdir(VOICES_DIR):
+        return
+    for name in sorted(os.listdir(VOICES_DIR)):
+        wav = os.path.join(VOICES_DIR, name)
+        if not (name.endswith(".wav") and os.path.isfile(wav)):
+            continue
+        txt = os.path.join(VOICES_DIR, name[:-4] + ".txt")
+        _voices[name[:-4]] = (wav, txt if os.path.isfile(txt) else "")
 
 def load_cosy(model_dir: str):
     global _model, _spks
@@ -49,7 +64,7 @@ def default_prompt_text():
 def synth(text, voice, prompt_text):
     """音色策略:
        1) 有内置音色(cosyvoice2 内置 spk) -> SFT
-       2) 否则零样本克隆: voice 传 wav 路径即定制音色; 未传用默认 prompt 资产
+       2) 否则零样本克隆: voice=音色名(cosyvoice-voices) 或 wav 路径; 缺省取库内第一个
     """
     global _model, _spks
     if not _model:
@@ -60,11 +75,17 @@ def synth(text, voice, prompt_text):
             if spk:
                 for out in _model.inference_sft(text, spk, stream=False):
                     return tensor_to_wav(out["tts_speech"])
-        pwav = voice if (voice and os.path.isfile(voice)) else DEFAULT_PROMPT_WAV
+        pwav, ptext = DEFAULT_PROMPT_WAV, None
+        if voice and voice in _voices:
+            pwav, ptext = _voices[voice]
+        elif voice and os.path.isfile(voice):
+            pwav = voice
+        elif _voices:
+            pwav, ptext = next(iter(_voices.values()))
         if not os.path.isfile(pwav):
             log.warning("缺零样本 prompt 音频: %s", pwav)
             return None
-        ptext = (prompt_text or default_prompt_text()) or text
+        ptext = (prompt_text or ptext or default_prompt_text()) or text
         for out in _model.inference_zero_shot(text, ptext, pwav, stream=False):
             return tensor_to_wav(out["tts_speech"])
     return None
@@ -78,6 +99,11 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/health"):
             self.send_response(200); self.send_header("Content-Type", "application/json")
             self.end_headers(); self.wfile.write(b'{"ok": true}')
+        elif self.path.startswith("/voices"):
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            import json as _j
+            self.wfile.write(_j.dumps(sorted(_voices.keys())).encode())
         else:
             self.send_response(404); self.end_headers()
     def do_POST(self):
@@ -105,6 +131,8 @@ def main():
     ap.add_argument("--model", required=True)
     args = ap.parse_args()
     load_cosy(args.model)
+    load_voices()
+    log.info("voices=%s", list(_voices.keys()))
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), H)
     log.info("listening on :%d speakers=%s", args.port, _spks)
     srv.serve_forever()

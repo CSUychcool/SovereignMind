@@ -121,14 +121,15 @@ string VoiceService::runPiper(const string& sentence, double lengthScale) {
     return wav;
 }
 
-void VoiceService::streamTts(const string& text, double lengthScale, Response& resp) {
+void VoiceService::streamTts(const string& text, double lengthScale, const string& voice, Response& resp) {
     resp.beginStream();
     auto sents = splitSentences(text);
-    tprintf("[Voice] TTS sentences: %zu (backend=%s)\n", sents.size(), AppConfig::get().ttsBackend.c_str());
+    tprintf("[Voice] TTS sentences: %zu (backend=%s voice=%s)\n",
+            sents.size(), AppConfig::get().ttsBackend.c_str(), voice.c_str());
     fflush(stdout);
     int idx = 0;
     for (auto& s : sents) {
-        string wav = synthSentence(s, lengthScale);
+        string wav = synthSentence(s, lengthScale, voice);
         if (wav.empty()) {
             tprintf("[Voice] tts fail on: %.40s\n", s.c_str());
             continue;
@@ -144,10 +145,10 @@ void VoiceService::streamTts(const string& text, double lengthScale, Response& r
 }
 
 // CosyVoice2 sidecar 优先, piper 兜底
-string VoiceService::synthSentence(const string& sentence, double lengthScale) {
+string VoiceService::synthSentence(const string& sentence, double lengthScale, const string& voice) {
     const AppConfig& c = AppConfig::get();
     if (c.ttsBackend == "cosyvoice") {
-        string w = runCosyVoice(sentence);
+        string w = runCosyVoice(sentence, voice);
         if (!w.empty()) return w;
         tprintf("[Voice] cosyvoice unavailable, fallback piper\n");
         fflush(stdout);
@@ -155,7 +156,7 @@ string VoiceService::synthSentence(const string& sentence, double lengthScale) {
     return runPiper(sentence, lengthScale);
 }
 
-string VoiceService::runCosyVoice(const string& sentence) {
+string VoiceService::runCosyVoice(const string& sentence, const string& voice) {
     const AppConfig& c = AppConfig::get();
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return "";
@@ -167,6 +168,7 @@ string VoiceService::runCosyVoice(const string& sentence) {
 
     Json::Value req;
     req["text"] = sentence;
+    if (!voice.empty()) req["voice"] = voice;
     string body = Json::FastWriter().write(req);
     string reqData =
         "POST /tts HTTP/1.1\r\n"

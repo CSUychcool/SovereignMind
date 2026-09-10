@@ -72,6 +72,7 @@ bool AppConfig::load(const char* configFile) {
     c.whisperPath = root.get("whisper_path", c.whisperPath).asString();
     c.whisperModel = root.get("whisper_model", c.whisperModel).asString();
     c.whisperLang = root.get("whisper_lang", c.whisperLang).asString();
+    c.voiceDefault = root.get("voice_default", c.voiceDefault).asString();
     c.ttsLengthScale = root.get("tts_length_scale", c.ttsLengthScale).asDouble();
     c.ttsBackend = root.get("tts_backend", c.ttsBackend).asString();
     c.cosyHost = root.get("cosy_host", c.cosyHost).asString();

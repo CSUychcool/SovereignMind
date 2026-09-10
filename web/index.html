@@ -1122,6 +1122,7 @@ function addMsgDOM(role,text,streaming=false){
         ${role==='ai'?'<button class="tool-btn" title="重试" onclick="retryMsg(this)">🔄</button><button class="tool-btn" title="朗读" onclick="speakRow(this)">🔊</button>':''}
       </div>
     </div>`;
+  r.dataset.raw = String(text||'');   // 保存原始回答(朗读用, 不取渲染后 DOM)
   w.appendChild(r); scrollBot(); return r;
 }
 
@@ -1161,6 +1162,7 @@ function updStream(el,text){
 }
 
 function finishStream(row,full){
+  row.dataset.raw = full||'';
   const el=row.querySelector('.msg-bubble');
   el.innerHTML=renderMD(full);
   el.querySelectorAll('.code-block').forEach(b=>{
@@ -1246,8 +1248,8 @@ async function sendDirect(query){
   const aiRow=appendStream();
   try{
     ac=new AbortController();
-    if(cfg.stream){ const full=await fetchStream(query,aiRow); curMsgs.push({role:'ai',content:full||''}); if(cfg.readAloud&&full) speakText(aiRow.querySelector('.msg-bubble').textContent,null); }
-    else{const r=await fetchPlain(query);updStream(aiRow.querySelector('.msg-bubble'),'');finishStream(aiRow,r);curMsgs.push({role:'ai',content:r});if(cfg.readAloud&&r)speakText(aiRow.querySelector('.msg-bubble').textContent,null);}
+    if(cfg.stream){ const full=await fetchStream(query,aiRow); curMsgs.push({role:'ai',content:full||''}); if(cfg.readAloud&&full) speakText(plainForTts(full),null); }
+    else{const r=await fetchPlain(query);updStream(aiRow.querySelector('.msg-bubble'),'');finishStream(aiRow,r);curMsgs.push({role:'ai',content:r});if(cfg.readAloud&&r)speakText(plainForTts(r),null);}
   }catch(err){
     if(err.name==='AbortError'){aiRow.remove();return}
     updStream(aiRow.querySelector('.msg-bubble'),'⚠️ 请求失败：'+err.message+'\n请稍后重试。');
@@ -1488,6 +1490,7 @@ async function playPipi(text){
   showTtsBar();
   ttsStreamEnd=false;
   ttsAbort=new AbortController();
+  console.log('[TTS send]', plainForTts(text).slice(0,160));   // 诊断: 实际发给后端朗读的文本
   try{
     const resp=await fetch(apiBase()+'/api/tts', withAuth({method:'POST',body:JSON.stringify({text,voice:cfg.voice||'linzhi'}),signal:ttsAbort.signal}));
     if(!resp.ok) throw new Error('HTTP '+resp.status);
@@ -1521,7 +1524,23 @@ function systemSpeak(text,btn){   // 系统语音兜底
   u.onend=u.onerror=()=>{ if(btn) btn.classList.remove('speaking'); };
   speechSynthesis.speak(u); if(btn) btn.classList.add('speaking');
 }
-function speakRow(btn){ const txt=btn.closest('.msg-content').querySelector('.msg-bubble').textContent; speakText(txt,btn); }
+function speakRow(btn){
+  const row=btn.closest('.msg-row');
+  speakText(plainForTts(row.dataset.raw || btn.closest('.msg-content').querySelector('.msg-bubble').textContent), btn);
+}
+// 朗读前把 Markdown/代号 剥掉, 只留要念的正文
+function plainForTts(t){
+  return String(t||'')
+    .replace(/```[\w]*\n?/g,' ').replace(/```/g,' ')
+    .replace(/`/g,'')
+    .replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1')
+    .replace(/^#{1,6}\s+/gm,'')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g,'$1')
+    .replace(/[*_~>]+/g,'')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/\n{3,}/g,'\n\n')
+    .trim();
+}
 function speakText(text,btn){
   if(ttsEnginePick()==='piper'){ if(btn&&btn.classList.contains('speaking')){ ttsStop(); btn.classList.remove('speaking'); return; } if(btn)btn.classList.add('speaking'); playPipi(text); }
   else systemSpeak(text,btn);

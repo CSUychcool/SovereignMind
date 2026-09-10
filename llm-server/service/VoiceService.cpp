@@ -125,6 +125,7 @@ void VoiceService::streamTts(const string& text, double lengthScale, const strin
     resp.beginStream();
     tprintf("[Voice] TTS whole-text %zu chars (backend=%s voice=%s)\n",
             text.size(), AppConfig::get().ttsBackend.c_str(), voice.c_str());
+    tprintf("[Voice]   head: %.120s\n", text.c_str());   // 诊断: 后端实收文本
     fflush(stdout);
     // 整段一口合成, sidecar 内部切句一次推理, 避免"句-句"间隔
     string wav = synthSentence(text, lengthScale, voice);

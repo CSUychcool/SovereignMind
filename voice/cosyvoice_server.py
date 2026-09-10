@@ -64,6 +64,7 @@ def default_prompt_text():
 
 # ---- 音色特征缓存: 每个音色的 prompt 特征只提取一次, 之后每句跳过 CPU 特征提取 ----
 _voice_cache = {}   # key -> dict(prompt 侧特征)
+USE_CACHE = os.environ.get("VOICE_CACHE") == "1"   # 默认关闭(原生推理最稳), 需要加速再开
 
 def build_prompt_cache(pwav, ptext):
     front = _model.frontend
@@ -128,20 +129,27 @@ def synth(text, voice, prompt_text):
             log.warning("缺零样本 prompt 音频: %s", pwav)
             return None
         ptext = (prompt_text or ptext or default_prompt_text()) or text
-        key = voice if voice in _voices else ("path:" + pwav)
-        if prompt_text:                     # 自定 prompt 文本 -> 独立缓存键
-            key = key + ":" + hashlib.md5(ptext.encode()).hexdigest()[:8]
-        try:
-            if key not in _voice_cache:
-                _voice_cache[key] = build_prompt_cache(pwav, ptext)
-            wav = synth_with_cache(text, key)
-            if wav:
-                return wav
-            log.warning("cached synth 无输出, 走兜底")
-        except Exception as e:
-            log.warning("cached synth 失败(%s), 走 inference_zero_shot 兜底", e)
+        # 缓存路径仅在 VOICE_CACHE=1 时启用(自测: 加速但更易出误差)
+        if USE_CACHE:
+            key = voice if voice in _voices else ("path:" + pwav)
+            if prompt_text:
+                key = key + ":" + hashlib.md5(ptext.encode()).hexdigest()[:8]
+            try:
+                if key not in _voice_cache:
+                    _voice_cache[key] = build_prompt_cache(pwav, ptext)
+                wav = synth_with_cache(text, key)
+                if wav:
+                    return wav
+                log.warning("cached synth 无输出, 走原生")
+            except Exception as e:
+                log.warning("cached synth 失败(%s), 走原生", e)
+        # 原生零样本(整段一口, sidecar 内部切句); 官方实现最稳
+        parts = []
         for out in _model.inference_zero_shot(text, ptext, pwav, stream=False):
-            return tensor_to_wav(out["tts_speech"])
+            parts.append(out["tts_speech"])
+        if parts:
+            speech = torch.cat(parts, dim=1) if len(parts) > 1 else parts[0]
+            return tensor_to_wav(speech)
     return None
 
 class H(BaseHTTPRequestHandler):

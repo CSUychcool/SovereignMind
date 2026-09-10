@@ -22,6 +22,39 @@
 | TTS 引擎 | 🔄 `tts_backend=cosyvoice` 首选（sidecar 就绪），**引擎安装进行中**；piper 已就绪作兜底 | **新增**（原文档 V1 定为 piper） |
 | 语音引擎 | ✅ piper 预编译 + 中文音色、whisper.cpp(base 142MB) 已构建 | — |
 
+## 语音 V1 最终方案（2026-09-10，含"为什么"）
+
+> 为小模型/本地 GPU 设计的语音链路：**ASR whisper + TTS CosyVoice2**，全本机、断网可用、内容 100% 对齐。
+
+### 链路与分层
+
+```
+🎤 录音 → 浏览器识别优先 → 失败回退 /api/asr(whisper.cpp, -l zh)
+🔊 /api/tts(9000) → 整段文本一口交给 sidecar → CosyVoice2(GPU, cross_lingual) → SSE 音频 → 浏览器播放
+   兜底链: cosyvoice → piper(离线) → 系统语音;  音色: 前端下拉(cosyvoice-voices/*.wav+.txt)
+```
+
+### 关键设计决策与原因
+
+| 决策 | 为什么 |
+|---|---|
+| **引擎 = CosyVoice2-0.5B**（sidecar :9101 常驻 GPU） | 阿里开源、本地 GPU 推理、零样本可克隆音色；劣于商业云端/edge-tts，但满足"自托+按捂定音色" |
+| **推理用 `cross_lingual`，不用 `zero_shot`** | zero_shot 会把 **prompt 文本续说成开场白**（林志玲/自录音均复现：先说"微笑面對生活…世界的美好"再接正文，或整段随机乱码）→ cross_lingual 只把 **prompt 音频特征**给 LLM、**不喂 prompt 文本**，内容严格跟随目标文本、音色不变。**这是"朗读内容不干净/像方言"的根治点** |
+| **采样压到 `top_p=0.15/top_k=5`** | zero_shot/LLM 每步 `multinomial` 随机采样 → 同文本不同乱码；压采样趋近贪心 + ras 重复惩罚兜底 → 内容确定性对齐目标文本（0.8/25→乱、0.4/12→部分前缀、0.15/5→干净） |
+| **整段一口合成**（sidecar 内部分句，一次推理整段返回） | 每句单独调一次 GPU → 句间等数秒、明显断裂；一口合成后前端连续播放，无间隔 |
+| **朗读文本用 `dataset.raw` + `plainForTts`，不取渲染 DOM** | `msg-bubble.textContent` 混入"复制"按钮/代码语言标签等 → 朗读不干净 |
+| **音色做成"库"**：`cosyvoice-voices/<name>.wav + .txt`、`GET /voices`、前端下拉 | 一个 wav+txt=一个音色的可插拔音色墙；prompt 音频需**单句、干净**（带 BGM/混响的样本会让特征提取失败→乱码；动过 `silenceremove`+高通后 13-01 可用） |
+| prompt 特征缓存默认**关**（`VOICE_CACHE=1` 可开） | 缓存能省每句 CPU 特征提取，但若与官方路径有偏差会引入内容误差；**先保正确性，缓存当性能选项** |
+| **ASR 强制 `-l zh`** | whisper base 自动语种会把中文合成音误判英文 |
+| 前端 TTS 引擎三档：本地(CosyVoice→piper)/系统；音色两档：林志玲/我的声音 | 让用户有"可靠默认 + 特效音色"的可选空间 |
+
+### 验证（自动化 whisper 回读对账）
+
+| 音色 | 目标文本 | whisper 回读 |
+|---|---|---|
+| linzhi(13-01 预处理) | 请用中文简单介绍一下二分查找，它有哪些适用条件？ | "请用中文简单介绍一下二分查找,它有哪些试用条件" ✅ |
+| me(自录 15s) | 同上 | "请用中文简单介绍一下二分查找,它有哪些试用条件。" ✅ |
+
 ## 0. 范围界定
 
 | P 级 | 需求 | 交付物 | 依赖选型 |

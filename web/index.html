@@ -606,6 +606,18 @@ body > canvas#particleCanvas {
 .tts-bar button:hover { background:var(--bg-level-3); color:var(--text-primary); }
 .tts-bar .tts-rate { min-width:46px; text-align:center; color:var(--accent); font-weight:600; }
 
+/* 上下文透明(抽屉) */
+.ctx-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:240; opacity:0; pointer-events:none; transition:opacity var(--t-normal); }
+.ctx-overlay.show { opacity:1; pointer-events:auto; }
+.ctx-drawer { position:fixed; top:0; right:0; bottom:0; width:min(380px,90vw); background:var(--bg-level-2); border-left:1px solid var(--border-light); z-index:250; display:flex; flex-direction:column; transform:translateX(100%); transition:transform var(--t-normal); }
+.ctx-drawer.open { transform:translateX(0); }
+.ctx-sum { font-size:12px; color:var(--text-secondary); padding:10px 14px; border-bottom:1px solid var(--border-light); }
+.ctx-seg { display:flex; align-items:center; gap:8px; padding:9px 14px; border-bottom:1px solid var(--border-light); font-size:12.5px; cursor:default; }
+.ctx-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.ctx-dot.sys { background:var(--accent); } .ctx-dot.rag { background:var(--cyan); } .ctx-dot.sum { background:var(--purple); } .ctx-dot.his { background:var(--green); } .ctx-dot.rec { background:var(--accent); } .ctx-dot.usr { background:var(--text-secondary); }
+.ctx-t { color:var(--text-primary); font-weight:600; min-width:80px; }
+.ctx-tok { color:var(--accent); font-size:11px; flex-shrink:0; margin-left:auto; }
+
 /* Animations */
 @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
 @keyframes dot-up { 0%,80%,100%{transform:scale(.5);opacity:.35;} 40%{transform:scale(1);opacity:1;} }
@@ -819,6 +831,14 @@ body > canvas#particleCanvas {
     <button class="btn btn-outline" id="doResetSet">重置默认</button>
     <button class="btn btn-act" id="doSaveSet">保存</button>
   </div>
+</div>
+
+<!-- ========== 上下文透明抽屉 ========== -->
+<div class="ctx-overlay" id="ctxOverlay"></div>
+<div class="ctx-drawer" id="ctxDrawer">
+  <div class="panel-header"><h2>🔍 本次请求上下文</h2><button class="icon-btn" id="ctxCloseBtn">×</button></div>
+  <div class="panel-body" id="ctxBody"></div>
+  <div class="panel-footer"><span style="font-size:11px;color:var(--text-tertiary)">仅展示本次动态拼装的上文 · 不落库 · 刷新即失</span></div>
 </div>
 
 <!-- Toast -->
@@ -1128,7 +1148,7 @@ function addMsgDOM(role,text,streaming=false){
       <div class="msg-bubble ${streaming?'md-text':''}">${streaming?'':renderMD(text)}</div>
       <div class="msg-tools">
         <button class="tool-btn" title="复制" onclick="copyMsg(this)">📋</button>
-        ${role==='ai'?'<button class="tool-btn" title="重试" onclick="retryMsg(this)">🔄</button><button class="tool-btn" title="朗读" onclick="speakRow(this)">🔊</button>':''}
+        ${role==='ai'?'<button class="tool-btn" title="重试" onclick="retryMsg(this)">🔄</button><button class="tool-btn" title="本次上下文" onclick="openCtxDrawer(this)">🧠</button><button class="tool-btn" title="朗读" onclick="speakRow(this)">🔊</button>':''}
       </div>
     </div>`;
   r.dataset.raw = String(text||'');   // 保存原始回答(朗读用, 不取渲染后 DOM)
@@ -1146,7 +1166,7 @@ function retryMsg(btn){
 function appendStream(){
   const w=$('msgsWrapper');
   const r=document.createElement('div'); r.className='msg-row ai';
-  r.innerHTML=`<div class="msg-avatar">✦</div><div class="msg-content"><div class="msg-bubble md-text"><span class="cursor-blink"></span></div><div class="msg-tools"><button class="tool-btn" title="复制" onclick="copyMsg(this)">📋</button><button class="tool-btn" title="朗读" onclick="speakRow(this)">🔊</button></div></div>`;
+  r.innerHTML=`<div class="msg-avatar">✦</div><div class="msg-content"><div class="msg-bubble md-text"><span class="cursor-blink"></span></div><div class="msg-tools"><button class="tool-btn" title="复制" onclick="copyMsg(this)">📋</button><button class="tool-btn" title="本次上下文" onclick="openCtxDrawer(this)">🧠</button><button class="tool-btn" title="朗读" onclick="speakRow(this)">🔊</button></div></div>`;
   w.appendChild(r); scrollBot(); return r;
 }
 
@@ -1283,8 +1303,10 @@ async function fetchStream(query,row){
       // 多行内容被服务端拆成多个 data: 行, 这里用 \n 拼回
       let data=dlines.map(l=>{let s=l.slice(5); if(s.startsWith(' '))s=s.slice(1); return s;}).join('\n');
       if(data==='[DONE]'){streamEnded=true;break}
-      // 兼容: 若上游未来给 JSON ({"content":"..."}), 提取 content 兜底
-      if(data.trimStart().startsWith('{')){try{const j=JSON.parse(data.trim());data=j.content||j.answer||j.text||data}catch{}}
+      // context 事件(上下文透明): 只缓存到该行, 不拼进正文
+      if(data.trimStart().startsWith('{')){try{const j=JSON.parse(data.trim());
+        if(j.type==='context'){ row.dataset.ctx=data; continue; }
+        data=j.content||j.answer||j.text||data;}catch{}}
       if(data){full+=data;updStream(el,full)}
     }
     if(streamEnded)break;
@@ -1638,6 +1660,42 @@ async function kbDelete(id){
   if(j.code===0){ toast('已删除'); loadKb(); } else toast(j.msg||'删除失败','err');
 }
 $('kbUploadBtn').addEventListener('click',kbUpload);
+
+/* ================================================================
+   上下文透明 (抽屉) — 🧠 按钮 / 点击用量条 打开
+=============================================================== */
+function openCtxDrawer(btn){
+  const row=btn?btn.closest('.msg-row'):null;
+  const raw=row?row.dataset.ctx:null;
+  if(!raw){ toast('该消息暂无上下文记录(需开启流式后提问)','err'); return; }
+  renderCtxDrawer(raw);
+  $('ctxOverlay').classList.add('show'); $('ctxDrawer').classList.add('open');
+}
+function closeCtx(){ $('ctxOverlay').classList.remove('show'); $('ctxDrawer').classList.remove('open'); }
+$('ctxCloseBtn').addEventListener('click',closeCtx);
+$('ctxOverlay').addEventListener('click',closeCtx);
+function renderCtxDrawer(raw){
+  const m=JSON.parse(raw);
+  const lbl={system:'系统',rag:'RAG 资料',summary:'摘要·要点',history:'历史',recall:'召回旧话',user:'问题'};
+  const cls={system:'sys',rag:'rag',summary:'sum',history:'his',recall:'rec',user:'usr'};
+  let h=`<div class="ctx-sum">预算 ${m.usable} · 已用 ${m.used} (${m.percent}%)${m.hasOlder?' · 更旧未装 ✂':''}${m.recall?' · 关键词召回 ×'+((m.segments||[]).find(s=>s.type==='recall')?.extra?.count||0):''}</div>`;
+  (m.segments||[]).forEach(s=>{
+    const ex=s.extra||{}; let t='';
+    if(s.type==='history') t=ex.loaded?` · 装了 ${ex.loaded} 条${ex.truncated?'(截断✂)':''}`:'';
+    else if(s.type==='recall') t=` +${ex.count||0} 条`;
+    else if(s.type==='rag') t=` ×${ex.count||0}`;
+    h+=`<div class="ctx-seg"><span class="ctx-dot ${cls[s.type]||'usr'}"></span><span class="ctx-t">${lbl[s.type]||s.type}</span><span class="ctx-tok">${s.token||0} tok${t}</span></div>`;
+  });
+  $('ctxBody').innerHTML=h;
+}
+// 用量条也可打开抽屉(最近一次请求)
+if($('ctxRow')) $('ctxRow').style.cursor='pointer';
+if($('ctxRow')) $('ctxRow').addEventListener('click',e=>{
+  if(e.target.closest('#ctxClearBtn')) return;
+  const row=document.querySelector('.msg-row.ai[data-ctx]');
+  if(row) openCtxDrawer(row.querySelector('.tool-btn[title="本次上下文"]'));
+  else toast('暂时没有可查看的上下文记录','err');
+});
 
 /* ================================================================
    SIDEBAR / SETTINGS

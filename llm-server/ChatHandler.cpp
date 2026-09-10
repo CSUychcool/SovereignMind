@@ -104,8 +104,9 @@ static std::string extractKeyword(const std::string& s) {
     return best.size() >= 2 ? best : "";
 }
 
-static void joinKeyboardRecall(long long convId, const std::string& prompt,
-                               int& budget, Json::Value& messages) {
+static int joinKeyboardRecall(long long convId, const std::string& prompt,
+                               int& budget, Json::Value& messages, int& outTok) {
+    outTok = 0;
     const AppConfig& cfg = AppConfig::get();
     std::vector<MsgRow> hits;
 
@@ -132,6 +133,7 @@ static void joinKeyboardRecall(long long convId, const std::string& prompt,
         int tok = TokenCounter::estimateTokens(h.content) + 4;
         if (budget - tok < 500) break;                // 至少留 500 token 余量给提问
         budget -= tok;
+        outTok += tok;
         Json::Value m;
         m["role"] = h.role;
         m["content"] = h.content;
@@ -142,6 +144,7 @@ static void joinKeyboardRecall(long long convId, const std::string& prompt,
         tprintf("[ChatHandler] P3 recall: +%d older msgs\n", added);
         fflush(stdout);
     }
+    return added;
 }
 
 void ChatHandler::handle(HttpContext& ctx) {
@@ -182,6 +185,11 @@ void ChatHandler::handle(HttpContext& ctx) {
                  - TokenCounter::estimateTokens(systemPrompt)
                  - TokenCounter::estimateTokens(prompt);
 
+    // ---- 上下文透明: 记录本次注入各段(type/token), 随 SSE 返回前端展示 ----
+    Json::Value ctxSegs(Json::arrayValue);
+    int sysTok = TokenCounter::estimateTokens(systemPrompt);
+    int histTok = 0, histLoaded = 0, recallTok = 0, recallCount = 0, ragCount = 0;
+
     // ---- 组装 OpenAI messages (system + [摘要] + history + user) ----
     Json::Value messages(Json::arrayValue);
     if (!systemPrompt.empty()) {
@@ -189,6 +197,7 @@ void ChatHandler::handle(HttpContext& ctx) {
         sysMsg["role"] = "system";
         sysMsg["content"] = systemPrompt;
         messages.append(sysMsg);
+        Json::Value s; s["type"]="system"; s["role"]="system"; s["token"]=sysTok; ctxSegs.append(s);
     }
 
     // ---- P1 RAG: 检索注入 (配额内; use_graph 附图谱邻域) ----
@@ -210,7 +219,7 @@ void ChatHandler::handle(HttpContext& ctx) {
                     std::string g = KnowledgeService::graphContext(uid, docIds, 40);
                     if (!g.empty()) joined = "【知识图谱邻域】\n" + g + "\n" + joined;
                 }
-                if (!joined.empty()) refsText = "【参考资料】\n" + joined;
+                if (!joined.empty()) { refsText = "【参考资料】\n" + joined; ragCount = (int)hits.size(); }
             }
         }
     }
@@ -224,6 +233,8 @@ void ChatHandler::handle(HttpContext& ctx) {
             messages.append(rr);
             tprintf("[ChatHandler] RAG refs injected (%d tok)\n", refTok);
             fflush(stdout);
+            Json::Value s; s["type"]="rag"; s["role"]="system"; s["token"]=refTok;
+            Json::Value ex; ex["count"]=ragCount; s["extra"]=ex; ctxSegs.append(s);
         }
     }
 
@@ -237,6 +248,7 @@ void ChatHandler::handle(HttpContext& ctx) {
             sm["role"] = "user";
             sm["content"] = "【此前对话要点】\n" + summaryText;
             messages.append(sm);
+            Json::Value s; s["type"]="summary"; s["role"]="user"; s["token"]=sumTok; ctxSegs.append(s);
         }
     }
 
@@ -255,20 +267,44 @@ void ChatHandler::handle(HttpContext& ctx) {
             m["role"] = h.role;
             m["content"] = h.content;
             messages.append(m);
+            histTok += TokenCounter::estimateTokens(h.content) + 4;
+            histLoaded++;
         }
         tprintf("[ChatHandler] db history loaded: %zu msgs (budget %d tok, older=%d)\n",
                 hs.size(), budget, hasOlder ? 1 : 0);
         fflush(stdout);
+        if (histLoaded > 0) {
+            Json::Value s; s["type"]="history"; s["role"]="user"; s["token"]=histTok;
+            Json::Value ex; ex["loaded"]=histLoaded; ex["truncated"]=hasOlder; s["extra"]=ex; ctxSegs.append(s);
+        }
         // P3: 预算仍有富余且窗口外还有更旧历史时, 用提问关键词召回
-        if (hasOlder && budget > 1000) joinKeyboardRecall(convId, prompt, budget, messages);
+        if (hasOlder && budget > 1000)
+            recallCount = joinKeyboardRecall(convId, prompt, budget, messages, recallTok);
+        if (recallCount > 0) {
+            Json::Value s; s["type"]="recall"; s["role"]="user"; s["token"]=recallTok;
+            Json::Value ex; ex["count"]=recallCount; s["extra"]=ex; ctxSegs.append(s);
+        }
     }
 
     Json::Value userMsg;
     userMsg["role"] = "user";
     userMsg["content"] = prompt;
     messages.append(userMsg);
+    {
+        Json::Value s; s["type"]="user"; s["role"]="user"; s["token"]=TokenCounter::estimateTokens(prompt); ctxSegs.append(s);
+    }
 
-    // ---- 调用上游网关 (SSE 流式回传 + 累积 AI 回复) ----
+    // ---- 上下文透明: 汇总一次请求 manifest ----
+    Json::Value ctxEvt;
+    int usedTok = 0;
+    for (Json::ArrayIndex i = 0; i < ctxSegs.size(); ++i) usedTok += ctxSegs[i]["token"].asInt();
+    ctxEvt["type"]="context"; ctxEvt["usable"]=AppConfig::get().usableHistoryTokens();
+    ctxEvt["used"]=usedTok;
+    ctxEvt["percent"]= AppConfig::get().usableHistoryTokens()>0 ? usedTok*100/AppConfig::get().usableHistoryTokens() : 0;
+    ctxEvt["hasOlder"]=hasOlder; ctxEvt["recall"]=recallCount>0;
+    ctxEvt["segments"]=ctxSegs;
+
+    // ---- 调用上游网关 (SSE 流式回传 + 累积 AI 回复; 末尾带上下文 manifest) ----
     Json::Value openaiReq;
     openaiReq["model"] = AppConfig::get().model;
     openaiReq["messages"] = messages;
@@ -276,7 +312,7 @@ void ChatHandler::handle(HttpContext& ctx) {
     openaiReq["temperature"] = 0.7;
 
     std::string aiFull;
-    LlmGateway::chatStream(openaiReq, ctx.resp, aiFull);
+    LlmGateway::chatStream(openaiReq, ctx.resp, aiFull, &ctxEvt);
 
     // ---- AI 回复落库 + P1 滚动压缩触发 ----
     if (persist && !aiFull.empty()) {

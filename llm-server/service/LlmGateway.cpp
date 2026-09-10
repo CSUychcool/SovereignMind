@@ -4,6 +4,7 @@
 #include "http_common/Response.h"
 #include <json/value.h>
 #include <json/reader.h>
+#include <json/writer.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -29,15 +30,17 @@ static void stripChunkedFraming(std::string& s) {
     }
 }
 
-bool LlmGateway::chatStream(const Json::Value& openaiReq, Response& resp, std::string& aiFull) {
-    return relay(openaiReq, &resp, aiFull);
+bool LlmGateway::chatStream(const Json::Value& openaiReq, Response& resp, std::string& aiFull,
+                            const Json::Value* contextEvent) {
+    return relay(openaiReq, &resp, aiFull, contextEvent);
 }
 
 bool LlmGateway::summarize(const Json::Value& openaiReq, std::string& outText) {
     return relay(openaiReq, nullptr, outText);
 }
 
-bool LlmGateway::relay(const Json::Value& openaiReq, Response* resp, std::string& out) {
+bool LlmGateway::relay(const Json::Value& openaiReq, Response* resp, std::string& out,
+                       const Json::Value* ctxEvent) {
     const AppConfig& c = AppConfig::get();
     std::string requestBody = Json::FastWriter().write(openaiReq);
 
@@ -103,6 +106,7 @@ bool LlmGateway::relay(const Json::Value& openaiReq, Response* resp, std::string
                 block.erase(0, endLine != std::string::npos ? endLine + 1 : block.size());
 
                 if (dataChunk.find("\"[DONE]") != std::string::npos || dataChunk == "[DONE]") {
+                    if (ctxEvent && resp) resp->sseChunk(Json::FastWriter().write(*ctxEvent));   // 上下文透明事件
                     if (resp) resp->sseChunk("[DONE]");
                     done = true;
                     break;

@@ -144,8 +144,9 @@ def synth(text, voice, prompt_text):
             except Exception as e:
                 log.warning("cached synth 失败(%s), 走原生", e)
         # 原生零样本(整段一口, sidecar 内部切句); 官方实现最稳
+        # 用 cross_lingual: LLM 不看 prompt 文本, 避免"续写 prompt 尾巴" + 保留音色
         parts = []
-        for out in _model.inference_zero_shot(text, ptext, pwav, stream=False):
+        for out in _model.inference_cross_lingual(text, pwav, stream=False):
             parts.append(out["tts_speech"])
         if parts:
             speech = torch.cat(parts, dim=1) if len(parts) > 1 else parts[0]

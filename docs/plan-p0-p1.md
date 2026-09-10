@@ -5,6 +5,22 @@
 - 分支：main
 - 说明：本文档给出 **P0 与 P1 的任务级计划**（每个任务=一次可开工实现的单位）。进一步到"某个具体任务的实施步骤"仍按约定在真正运行时再拆。
 
+## 实现状态核对（2026-09-10，按实际代码复核）
+
+> 与计划有出入处**以实际代码为准**。实现已随 `featuer/p0-p1 → main` 合入。
+
+| 计划项 | 实际状态 | 与文档的差异 |
+|---|---|---|
+| P0 节流B（`until_fit` 连压 + `maxCompressRounds=5` + `throttled` 可切） | ✅ 已实现并验收 | 无 |
+| P1-C 历史会话向量召回（路径B） | ✅ 已实现（`recall_mode=vector`；`ensureMsgVectors` 增量回填；向量优先 + LIKE 兜底） | 无 |
+| 向量库（计划 D2=faiss） | ⏳ **当前=进程内暴力余弦**：向量存 MySQL `vec_index`（BLOB float32），`VectorStore` 接口化 | **偏差：faiss 未落地**（WSL 无 sudo），接口可无缝替换 |
+| RAG 上传/入库/检索注入 | ✅ 已实现并验收（upload/list/delete；`use_rag/use_graph` 请求开关；GRAPH=LLM 抽取→kb_entities/kb_edges） | **上传=JSON `{title,filename,content}`**（原文档写 multipart）；**无 `/api/kb/status`** |
+| RAG 引用 sources | ❌ **未实现**（按 FR2-9 归 P2；服务端/前端均无 sources） | 文档 A-4/A-7 的"响应带 sources/前端展示"未做 |
+| 语音 P1-B 前端 | ✅ 已实现（录音/朗读/暂停调速/自动朗读/设置项） | **识别=浏览器优先→失败回退本地 whisper**（按用户要求反转；原文档是"本地优先浏览器兜底"） |
+| V1 语音后端 | ✅ 代码已并入（`/api/tts` SSE、`/api/asr` whisper.cpp） | — |
+| TTS 引擎 | 🔄 `tts_backend=cosyvoice` 首选（sidecar 就绪），**引擎安装进行中**；piper 已就绪作兜底 | **新增**（原文档 V1 定为 piper） |
+| 语音引擎 | ✅ piper 预编译 + 中文音色、whisper.cpp(base 142MB) 已构建 | — |
+
 ## 0. 范围界定
 
 | P 级 | 需求 | 交付物 | 依赖选型 |
@@ -58,7 +74,7 @@
 
 ### 选型落点（§22）
 - D1：embedding 走 Ollama `/api/embed`，**独立于聊天上游配置** → 新增 `AppConfig.embed.*`（host/port/model= nomic-embed-text，与聊天 upstream 解耦）。
-- D2：faiss 进程内 `IndexFlatIP`（归一化后=余弦）+ MySQL 存 chunk 元数据。
+- D2：向量库 —— **实际落地 v0=进程内暴力余弦**（`VectorStore`，等价 IndexFlatIP 语义），向量存 MySQL `vec_index`(kind/group/item, BLOB)；faiss 后装后经 `VectorStore` 接口替换（无需改调用方）。
 - D3：入库后台任务走 LLM 抽取实体/关系 → `kb_entities` / `kb_edges`。
 
 ### 数据模型草案（Db.cpp 新增建表，幂等）
@@ -94,14 +110,14 @@ CREATE TABLE IF NOT EXISTS kb_edges (
   relation VARCHAR(64) NOT NULL, INDEX(doc_id));
 ```
 
-faiss 索引落盘 `data/kb.index`（`IndexFlatIP`，float32 dim=768）；向量不落 MySQL（重建凭 chunk 重新 embed）。
+向量实际存放：**v0=MySQL `vec_index` 表 BLOB**（float32，归一化向量，内积即余弦）；faiss 索引落盘方案（`data/kb.index`）为 faiss 后端落地后的形态。
 
 ### 接口契约草案
 
-- `POST /api/kb/upload`（multipart；文件名/title）→ `{code, doc_id}`；异步：解析→切块→embed→构图（status 流转）。
-- `GET /api/kb/list`、`POST /api/kb/delete {id}`、`GET /api/kb/status {id}`。
-- `POST /api/chat` 增可选参数：`use_graph?: bool`、`use_rag?: bool`（默认开，粒度到请求级）。
-- 响应 augment：`sources: [{doc_id, chunk_idx, content_excerpt}]`。
+- `POST /api/kb/upload`：**JSON `{title?, filename, content}`**（txt/md 内容直传）→ `{code, doc_id}`；流程：解析→切块→embed（Ollama /api/embed）→写 `kb_chunks`+`vec_index`→GRAPH 抽取入库（同步完成）。
+- `GET /api/kb/list`、`POST /api/kb/delete {id}`（已实现）；`/api/kb/status` **未实现**。
+- `POST /api/chat` 已支持 `use_graph?: bool`、`use_rag?: bool`（默认开，请求级）。
+- 引用来源 `sources` **未实现**（归 P2，FR2-9）。
 
 ### 任务分解
 
@@ -126,8 +142,7 @@ faiss 索引落盘 `data/kb.index`（`IndexFlatIP`，float32 dim=768）；向量
 录音→转文字进对话；回答朗读（流式逐句 v1.1）。
 
 ### 落点（§22 D4）
-v0：浏览器 API（识别 `webkitSpeechRecognition` lang=zh-CN；合成 `speechSynthesis`，OS 离线语音）。v1：后端 ASR whisper + piper。
-**设计抽象**：前端 `VoiceProvider` 接口（`browser` | `server`），配置可切；为 v1 留 `POST /api/asr` 契约。
+实现（2026-09-10 已定稿）：**识别=浏览器 `SpeechRecognition` 优先（实时转写），失败/不支持回退本机 whisper（/api/asr）**；朗读走 `/api/tts` SSE（后端 `tts_backend=cosyvoice`→piper 兜底），前端 WebAudio 队列播放 + 暂停/调速。`VoiceProvider` 抽象保留（browser | server）。
 
 ### 接口契约
 - `POST /api/asr`（v1，multipart/raw audio）→ `{code, text}`（v0 前端后端两端为空时前端自动降级 preview）。

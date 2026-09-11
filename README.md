@@ -153,3 +153,7 @@ cmake --build build -j4
 ## 🛡 安全提醒
 
 暴露公网前（frp/隧道）确保：所有 `/api/*` 均要求登录（Token）；建议再加一层 Basic Auth / IP 白名单。本项目为私有自托管定位，未内置联邦登录。
+
+
+📄 开源协议
+本项目采用 GNU Affero General Public License v3.0 协议（SPDX：AGPL-3.0-only）。
